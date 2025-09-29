@@ -1,0 +1,9 @@
+__pycache__
+lightning_logs*
+logs_*
+.shapenet
+.vscode
+*.ipynb
+*.ini
+scans
+*.venv

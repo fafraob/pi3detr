@@ -1,0 +1,40 @@
+# ==== Repos for CUDA 12.1 PyTorch + PyG wheels ====
+--index-url https://download.pytorch.org/whl/cu121
+--extra-index-url https://pypi.org/simple
+--find-links https://data.pyg.org/whl/torch-2.5.1%2Bcu121.html
+
+# ==== Core: PyTorch CUDA 12.1 ====
+torch==2.5.1+cu121
+
+# ==== PyTorch Geometric stack (built for torch 2.5 + cu121) ====
+pyg-lib==0.4.0+pt25cu121
+torch-scatter==2.1.2+pt25cu121
+torch-sparse==0.6.18+pt25cu121
+torch-cluster==1.6.3+pt25cu121
+torch-spline-conv==1.2.2+pt25cu121
+torch-geometric==2.6.1
+
+# ==== Vision / geometry extras ====
+kornia==0.8.0
+opencv-python==4.11.0.86
+open3d==0.19.0
+polyscope==2.3.0
+trimesh==4.6.8
+timm==1.0.14
+spconv-cu121==2.3.8
+
+# ==== SciPy stack ====
+# Use NumPy >=2.0 for SciPy 1.15.x; leave upper bound open for compatibility with CUDA wheels.
+numpy>=2.0
+scipy==1.15.2
+scikit-learn==1.6.1
+matplotlib==3.10.0
+
+# ==== Jupyter / developer tools ====
+ipython>=8.20
+ipykernel==6.29.5
+ipywidgets==8.1.5
+black==25.1.0
+tqdm>=4.66
+tensorboard==2.19.0
+pytorch-lightning==2.5.0.post0
