@@ -257,7 +257,7 @@ function initPointCloud() {
   scene.add(points);
 
   // Add orbit controls
-  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.enableZoom = true;
@@ -431,7 +431,7 @@ function initAdvancedPointCloud() {
   }
 
   // Add orbit controls
-  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.enableZoom = true;
