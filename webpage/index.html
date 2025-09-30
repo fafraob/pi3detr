@@ -83,8 +83,16 @@
     <link rel="stylesheet" type="text/css" href="style.css" />
     
     <!-- Three.js Library -->
-    <script src="libs/three.min.js"></script>
-    <script src="libs/OrbitControls.js"></script>
+    <script type="module">
+  import * as THREE from 'https://unpkg.com/three@0.150.0/build/three.module.js';
+  import { OrbitControls } from 'https://unpkg.com/three@0.150.0/examples/jsm/controls/OrbitControls.js';
+
+  window.THREE = THREE; // if your other code uses global THREE
+
+  // Initialize Point Clouds etc.
+  initPointCloud();
+  initAdvancedPointCloud();
+</script>
     
     <!-- Google Model Viewer -->
     <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
