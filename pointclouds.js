@@ -1,0 +1,1297 @@
+// First load Three.js and make it globally available
+import './libs/three.min.js';
+
+// Now import OrbitControls
+import { OrbitControls } from './libs/OrbitControls.js';
+
+// XYZ File Loader
+class XYZLoader {
+load(url, onLoad, onProgress, onError) {
+    const loader = new THREE.FileLoader(THREE.DefaultLoadingManager);
+    loader.setResponseType('text');
+    loader.load(url, (text) => {
+    try {
+        const geometry = this.parse(text);
+        onLoad(geometry);
+    } catch (error) {
+        if (onError) onError(error);
+    }
+    }, onProgress, onError);
+}
+
+parse(text) {
+    const lines = text.split('\n');
+    const positions = [];
+    const colors = [];
+
+    for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line === '' || line.startsWith('#')) continue;
+
+    const parts = line.split(/\s+/);
+    if (parts.length >= 3) {
+        // Position (x, y, z)
+        positions.push(
+        parseFloat(parts[0]),
+        parseFloat(parts[1]),
+        parseFloat(parts[2])
+        );
+
+        // Color (r, g, b) - if available, otherwise use default
+        if (parts.length >= 6) {
+        colors.push(
+            parseFloat(parts[3]) / 255.0,
+            parseFloat(parts[4]) / 255.0,
+            parseFloat(parts[5]) / 255.0
+        );
+        } else {
+        // Default color based on height (y-coordinate)
+        const y = parseFloat(parts[1]);
+        const normalizedY = (y + 1) * 0.5; // Normalize to 0-1
+        colors.push(normalizedY, 0.5, 1.0 - normalizedY);
+        }
+    }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    
+    // Center the geometry
+    geometry.computeBoundingBox();
+    const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+    //geometry.translate(-center.x, -center.y, -center.z);
+    
+    return geometry;
+}
+}
+
+// Point Cloud Carousel Class
+class PointCloudCarousel {
+  constructor() {
+    this.pointClouds = [];
+    this.polylineData = [];
+    this.viewers = [];
+    this.currentIndex = 0;
+    this.carouselInstance = null;
+    this.showGroundTruth = false; // separate flag for GT
+    this.showPredictions = true; // Default to true - predictions active by default
+
+
+
+    this.classColors = {
+      1: 0xffa300, // red
+      2: 0x0000ff, // green
+      3: 0x00ff00, // blue
+      4: 0xff0000  // orange
+    };
+
+
+    
+    this.loadPointClouds();
+  }
+
+  async loadPointClouds() {
+    const loader = new XYZLoader();
+    const baseUrl = './pointcloud/pointcloud_';
+    
+    // Try to load point clouds (01 to 50, but we'll use what we find)
+    for (let i = 1; i <= 50; i++) {
+      const paddedNumber = i.toString().padStart(2, '0');
+      const url = `${baseUrl}${paddedNumber}.xyz`;
+      
+      try {
+        await new Promise((resolve, reject) => {
+          loader.load(
+            url,
+            (geometry) => {
+              this.pointClouds.push(geometry);
+              resolve();
+            },
+            undefined,
+            reject
+          );
+        });
+      } catch (error) {
+        // Stop trying when we can't load more files
+        console.log(`Loaded ${this.pointClouds.length} XYZ files`);
+        break;
+      }
+    }
+
+    // If no XYZ files were loaded, create sample point clouds
+    if (this.pointClouds.length === 0) {
+      console.log('No XYZ files found, creating sample point clouds...');
+      this.createSamplePointClouds();
+    }
+
+    // Load corresponding polyline data
+    await this.loadPolylineData();
+
+    // Don't duplicate - use only the actual point clouds we have
+    console.log(`Using ${this.pointClouds.length} point clouds for carousel`);
+
+    // Initialize carousel viewers and setup boundary controls
+    this.initCarouselViewers();
+    this.setupCarouselControls();
+  }
+
+  async loadPolylineData() {
+    const baseUrl = './pointcloud/pointcloud_';
+    
+    for (let i = 0; i < this.pointClouds.length; i++) {
+      const paddedNumber = (i + 1).toString().padStart(2, '0');
+      const jsonUrl = `${baseUrl}${paddedNumber}.json`;
+      
+      try {
+        const response = await fetch(jsonUrl);
+        if (response.ok) {
+          const data = await response.json();
+          this.polylineData.push(data);
+        } else {
+          this.polylineData.push(null);
+        }
+      } catch (error) {
+        console.log(`No JSON file found for pointcloud_${paddedNumber}`);
+        this.polylineData.push(null);
+      }
+    }
+  }
+
+  ensureMinimumPointClouds(minCount) {
+    if (this.pointClouds.length === 0) {
+      this.createSamplePointClouds();
+    }
+
+    // If we still don't have enough, duplicate existing ones
+    while (this.pointClouds.length < minCount) {
+      const originalCount = this.pointClouds.length;
+      for (let i = 0; i < originalCount && this.pointClouds.length < minCount; i++) {
+        // Clone the geometry to avoid conflicts
+        const originalGeometry = this.pointClouds[i];
+        const clonedGeometry = originalGeometry.clone();
+        this.pointClouds.push(clonedGeometry);
+      }
+    }
+    
+    console.log(`Ensured ${this.pointClouds.length} point clouds available for carousel`);
+  }
+
+  createSamplePointClouds() {
+    const sampleConfigs = [
+      { type: 'sphere', count: 500 },
+      { type: 'cube', count: 400 },
+      { type: 'spiral', count: 700 },
+      { type: 'torus', count: 800 },
+      { type: 'helix', count: 900 },
+      { type: 'cone', count: 550 },
+      { type: 'wave', count: 800 },
+      { type: 'clusters', count: 600 }
+    ];
+
+    sampleConfigs.forEach(config => {
+      const geometry = this.generateSampleGeometry(config);
+      this.pointClouds.push(geometry);
+    });
+  }
+
+  generateSampleGeometry(config) {
+    const geometry = new THREE.BufferGeometry();
+    const positions = [];
+    const colors = [];
+
+    for (let i = 0; i < config.count; i++) {
+      let x, y, z;
+      
+      switch (config.type) {
+        case 'sphere':
+          const phi = Math.random() * Math.PI * 2;
+          const costheta = Math.random() * 2 - 1;
+          const u = Math.random();
+          const theta = Math.acos(costheta);
+          const r = 2 * Math.cbrt(u);
+          x = r * Math.sin(theta) * Math.cos(phi);
+          y = r * Math.sin(theta) * Math.sin(phi);
+          z = r * Math.cos(theta);
+          break;
+          
+        case 'cube':
+          x = (Math.random() - 0.5) * 4;
+          y = (Math.random() - 0.5) * 4;
+          z = (Math.random() - 0.5) * 4;
+          break;
+          
+        case 'spiral':
+          const t = i / config.count * Math.PI * 4;
+          const radius = t * 0.3;
+          x = radius * Math.cos(t);
+          y = t * 0.5 - 3;
+          z = radius * Math.sin(t);
+          break;
+          
+        case 'torus':
+          const u_tor = Math.random() * Math.PI * 2;
+          const v_tor = Math.random() * Math.PI * 2;
+          const R = 2, r_tor = 0.8;
+          x = (R + r_tor * Math.cos(v_tor)) * Math.cos(u_tor);
+          y = (R + r_tor * Math.cos(v_tor)) * Math.sin(u_tor);
+          z = r_tor * Math.sin(v_tor);
+          break;
+          
+        case 'helix':
+          const t_helix = i / config.count * Math.PI * 6;
+          x = 2 * Math.cos(t_helix);
+          y = t_helix * 0.3 - 3;
+          z = 2 * Math.sin(t_helix);
+          break;
+          
+        case 'cone':
+          const h = Math.random() * 4;
+          const r_cone = (4 - h) * 0.5;
+          const a_cone = Math.random() * Math.PI * 2;
+          x = r_cone * Math.cos(a_cone);
+          z = r_cone * Math.sin(a_cone);
+          y = h - 2;
+          break;
+          
+        case 'wave':
+          x = (Math.random() - 0.5) * 6;
+          z = (Math.random() - 0.5) * 6;
+          y = Math.sin(x) * Math.cos(z);
+          break;
+          
+        case 'clusters':
+          const cluster = Math.floor(Math.random() * 3);
+          const offsets = [[0, 0, 0], [3, 0, 0], [-1.5, 2.6, 0]];
+          x = (Math.random() - 0.5) * 1.5 + offsets[cluster][0];
+          y = (Math.random() - 0.5) * 1.5 + offsets[cluster][1];
+          z = (Math.random() - 0.5) * 1.5 + offsets[cluster][2];
+          break;
+          
+        default:
+          x = (Math.random() - 0.5) * 4;
+          y = (Math.random() - 0.5) * 4;
+          z = (Math.random() - 0.5) * 4;
+      }
+
+      positions.push(x, y, z);
+
+      // Generate vibrant colors based on position
+      const hue = (x + y + z + 10) / 20;
+      const color = new THREE.Color().setHSL((hue % 1), 0.8, 0.6);
+      colors.push(color.r, color.g, color.b);
+    }
+
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    
+    return geometry;
+  }
+
+  initCarouselViewers() {
+    // Ensure we have at least one point cloud
+    if (this.pointClouds.length === 0) {
+      console.error('No point clouds available for carousel');
+      return;
+    }
+
+    console.log(`Initializing carousel with ${this.pointClouds.length} point clouds`);
+
+    // Initialize only the slots we have point clouds for (max 8)
+    const slotsToCreate = Math.min(20, this.pointClouds.length);
+    
+    for (let i = 1; i <= slotsToCreate; i++) {
+      const container = document.getElementById(`pointcloud-viewer-${i}`);
+      if (container) {
+        // Use direct indexing without modulo
+        const pointCloudIndex = i - 1;
+        const geometry = this.pointClouds[pointCloudIndex];
+        
+        console.log(`Slot ${i} using point cloud ${pointCloudIndex}`);
+        
+        if (!geometry) {
+          console.error(`No geometry found for slot ${i}, index ${pointCloudIndex}`);
+          continue;
+        }
+        
+        // Add a small delay to ensure DOM is ready
+        setTimeout(() => {
+          this.initViewer(container, geometry, i);
+        }, 50 * i);
+      } else {
+        console.warn(`Container pointcloud-viewer-${i} not found`);
+      }
+    }
+
+    // Hide unused carousel items if we have fewer than 8 point clouds
+    for (let i = slotsToCreate + 1; i <= 20; i++) {
+      const item = document.querySelector(`.item-pointcloud-${i}`);
+      if (item) {
+        item.style.display = 'none';
+      }
+    }
+
+    // Add display mode toggle button after viewers are initialized
+    this.addDisplayModeToggleButton();
+  }
+
+  addDisplayModeToggleButton() {
+    // Wait for DOM to be ready
+    setTimeout(() => {
+      const carouselContainer = document.getElementById('results-carousel').parentElement;
+      
+      // Create container for toggle buttons
+      const buttonContainer = document.createElement('div');
+      buttonContainer.className = 'field has-addons mb-3';
+      buttonContainer.style.marginBottom = '10px';
+      
+      // Create container for the button group
+      const buttonGroup = document.createElement('div');
+      buttonGroup.className = 'control';
+      
+      // Create Predictions toggle button (first, active by default)
+      const predButton = document.createElement('button');
+      predButton.className = 'button is-info is-selected'; // Active by default
+      predButton.id = 'toggle-predictions-btn';
+      predButton.innerHTML = `
+        <span class="icon">
+          <i class="fas fa-brain"></i>
+        </span>
+        <span>Predictions</span>
+      `;
+      
+      // Create Ground Truth toggle button (second, grayed out by default)
+      const gtButton = document.createElement('button');
+      gtButton.className = 'button is-light'; // Grayed out by default
+      gtButton.id = 'toggle-ground-truth-btn';
+      gtButton.innerHTML = `
+        <span class="icon">
+          <i class="fas fa-check-circle"></i>
+        </span>
+        <span>Ground Truth</span>
+      `;
+      
+      buttonGroup.appendChild(predButton);
+      buttonGroup.appendChild(gtButton);
+      buttonContainer.appendChild(buttonGroup);
+      
+      // Insert before carousel
+      carouselContainer.insertBefore(buttonContainer, carouselContainer.firstChild);
+      
+      // Add event listeners for toggle functionality
+      predButton.addEventListener('click', () => {
+        if (this.showPredictions) {
+          // Turn off predictions - gray out the button
+          this.showPredictions = false;
+          predButton.className = 'button is-light';
+        } else {
+          // Turn on predictions, turn off ground truth
+          this.showPredictions = true;
+          this.showGroundTruth = false;
+          predButton.className = 'button is-info is-selected';
+          gtButton.className = 'button is-light';
+        }
+        this.updateAllViewers();
+      });
+      
+      gtButton.addEventListener('click', () => {
+        if (this.showGroundTruth) {
+          // Turn off ground truth - gray out the button
+          this.showGroundTruth = false;
+          gtButton.className = 'button is-light';
+        } else {
+          // Turn on ground truth, turn off predictions
+          this.showGroundTruth = true;
+          this.showPredictions = false;
+          gtButton.className = 'button is-success is-selected';
+          predButton.className = 'button is-light';
+        }
+        this.updateAllViewers();
+      });
+    }, 500);
+  }
+
+  setupCarouselControls() {
+    // Wait for the page to load and carousel to initialize
+    setTimeout(() => {
+      const carousel = document.getElementById('results-carousel');
+      if (carousel) {
+        // Initialize Bulma carousel with custom settings
+        const carouselInstances = bulmaCarousel.attach('#results-carousel', {
+          slidesToScroll: 1,
+          slidesToShow: 1,
+          infinite: false, // Disable infinite scrolling
+          pagination: false,
+          navigation: true,
+          navigationKeys: true,
+          navigationSwipe: true,
+          effect: 'slide',
+          duration: 600,
+          timing: 'ease'
+        });
+
+        if (carouselInstances.length > 0) {
+          this.carouselInstance = carouselInstances[0];
+          
+          // Add event listeners to track position and manage boundaries
+          this.carouselInstance.on('before:show', (state) => {
+            this.currentIndex = state.next;
+            this.updateNavigationButtons();
+          });
+
+          // Initial button state
+          this.updateNavigationButtons();
+        }
+      }
+    }, 1000);
+  }
+
+  updateNavigationButtons() {
+    const prevButton = document.querySelector('#results-carousel .carousel-nav-left');
+    const nextButton = document.querySelector('#results-carousel .carousel-nav-right');
+    
+    if (prevButton && nextButton) {
+      // Disable previous button at start
+      if (this.currentIndex === 0) {
+        prevButton.style.opacity = '0.3';
+        prevButton.style.pointerEvents = 'none';
+      } else {
+        prevButton.style.opacity = '1';
+        prevButton.style.pointerEvents = 'auto';
+      }
+
+      // Disable next button at end
+      const maxIndex = Math.min(this.pointClouds.length - 1, 7);
+      if (this.currentIndex >= maxIndex) {
+        nextButton.style.opacity = '0.3';
+        nextButton.style.pointerEvents = 'none';
+      } else {
+        nextButton.style.opacity = '1';
+        nextButton.style.pointerEvents = 'auto';
+      }
+    }
+  }
+
+  updateAllViewers() {
+    // Update all viewers when checkbox states change
+    this.viewers.forEach((viewer, index) => {
+      this.updateViewerDisplay(viewer, index);
+    });
+  }
+
+  updateViewerDisplay(viewer, index) {
+    // Remove existing polylines
+    if (viewer.polylines) {
+      viewer.polylines.forEach(line => viewer.scene.remove(line));
+      viewer.polylines = [];
+    }
+    
+    // Point cloud is always visible
+    if (viewer.pointsMesh) {
+      viewer.pointsMesh.visible = true;
+    }
+    
+    // Add polylines based on checkbox states
+    if (this.polylineData[index]) {
+      const polylinesToAdd = [];
+      
+      // Add Ground Truth polylines if checkbox is checked
+      if (this.showGroundTruth) {
+        const gtPolylines = this.createPolylines(this.polylineData[index], 'gt');
+        polylinesToAdd.push(...gtPolylines);
+      }
+      
+      // Add Prediction polylines if checkbox is checked
+      if (this.showPredictions) {
+        const predPolylines = this.createPolylines(this.polylineData[index], 'pred');
+        polylinesToAdd.push(...predPolylines);
+      }
+      
+      viewer.polylines = polylinesToAdd;
+      viewer.polylines.forEach(line => viewer.scene.add(line));
+    }
+  }
+
+  createPolylines(data, mode) {
+    const polylines = [];
+    const polylineData = data[mode];
+    
+    if (!polylineData) return polylines;
+    
+    polylineData.forEach(item => {
+      if (item.points && item.points.length > 1) {
+        const points = item.points.map(p => new THREE.Vector3(p[0], p[1], p[2]));
+        const color = this.classColors[item.class] || 0xffffff;
+
+        const curve = new THREE.CatmullRomCurve3(points);
+        const tubeGeometry = new THREE.TubeGeometry(curve, 100, 0.01, 8, false);
+        const tubeMaterial = new THREE.MeshBasicMaterial({ color: color });
+        const tube = new THREE.Mesh(tubeGeometry, tubeMaterial);
+        polylines.push(tube);
+
+        // --- Add end caps ---
+        const startCap = new THREE.CircleGeometry(0.01, 8); // same radius & segments as tube
+        const endCap   = new THREE.CircleGeometry(0.01, 8);
+
+        const startCapMesh = new THREE.Mesh(startCap, tubeMaterial);
+        const endCapMesh   = new THREE.Mesh(endCap, tubeMaterial);
+
+        // Orient caps to face along the tube direction
+        const startDir = new THREE.Vector3().subVectors(points[1], points[0]).normalize();
+        const endDir   = new THREE.Vector3().subVectors(points[points.length - 2], points[points.length - 1]).normalize();
+
+        // position & rotate start cap
+        startCapMesh.position.copy(points[0]);
+        startCapMesh.lookAt(points[0].clone().sub(startDir));
+
+        // position & rotate end cap
+        endCapMesh.position.copy(points[points.length - 1]);
+        endCapMesh.lookAt(points[points.length - 1].clone().sub(endDir));
+
+         polylines.push(startCapMesh);
+         polylines.push(endCapMesh);
+      }
+    });
+    
+    return polylines;
+  }
+
+  initCarouselViewers() {
+    // Ensure we have at least one point cloud
+    if (this.pointClouds.length === 0) {
+      console.error('No point clouds available for carousel');
+      return;
+    }
+
+    console.log(`Initializing carousel with ${this.pointClouds.length} point clouds`);
+
+    // Initialize only the slots we have point clouds for (max 8)
+    const slotsToCreate = Math.min(20, this.pointClouds.length);
+    
+    for (let i = 1; i <= slotsToCreate; i++) {
+      const container = document.getElementById(`pointcloud-viewer-${i}`);
+      if (container) {
+        // Use direct indexing without modulo
+        const pointCloudIndex = i - 1;
+        const geometry = this.pointClouds[pointCloudIndex];
+        
+        console.log(`Slot ${i} using point cloud ${pointCloudIndex}`);
+        
+        if (!geometry) {
+          console.error(`No geometry found for slot ${i}, index ${pointCloudIndex}`);
+          continue;
+        }
+        
+        // Add a small delay to ensure DOM is ready
+        setTimeout(() => {
+          this.initViewer(container, geometry, i);
+        }, 50 * i);
+      } else {
+        console.warn(`Container pointcloud-viewer-${i} not found`);
+      }
+    }
+
+    // Hide unused carousel items if we have fewer than 8 point clouds
+    for (let i = slotsToCreate + 1; i <= 20; i++) {
+      const item = document.querySelector(`.item-pointcloud-${i}`);
+      if (item) {
+        item.style.display = 'none';
+      }
+    }
+
+    // Add display mode toggle button after viewers are initialized
+    this.addDisplayModeToggleButton();
+  }
+
+  addDisplayModeToggleButton() {
+    // Wait for DOM to be ready
+    setTimeout(() => {
+      const carouselContainer = document.getElementById('results-carousel').parentElement;
+      
+      // Create container for toggle buttons
+      const buttonContainer = document.createElement('div');
+      buttonContainer.className = 'field has-addons mb-3';
+      buttonContainer.style.marginBottom = '10px';
+      
+      // Create container for the button group
+      const buttonGroup = document.createElement('div');
+      buttonGroup.className = 'control';
+      
+      // Create Predictions toggle button (first, active by default)
+      const predButton = document.createElement('button');
+      predButton.className = 'button is-info is-selected'; // Active by default
+      predButton.id = 'toggle-predictions-btn';
+      predButton.innerHTML = `
+        <span class="icon">
+          <i class="fas fa-brain"></i>
+        </span>
+        <span>Predictions</span>
+      `;
+      
+      // Create Ground Truth toggle button (second, grayed out by default)
+      const gtButton = document.createElement('button');
+      gtButton.className = 'button is-light'; // Grayed out by default
+      gtButton.id = 'toggle-ground-truth-btn';
+      gtButton.innerHTML = `
+        <span class="icon">
+          <i class="fas fa-check-circle"></i>
+        </span>
+        <span>Ground Truth</span>
+      `;
+      
+      buttonGroup.appendChild(predButton);
+      buttonGroup.appendChild(gtButton);
+      buttonContainer.appendChild(buttonGroup);
+      
+      // Insert before carousel
+      carouselContainer.insertBefore(buttonContainer, carouselContainer.firstChild);
+      
+      // Add event listeners for toggle functionality
+      predButton.addEventListener('click', () => {
+        if (this.showPredictions) {
+          // Turn off predictions - gray out the button
+          this.showPredictions = false;
+          predButton.className = 'button is-light';
+        } else {
+          // Turn on predictions, turn off ground truth
+          this.showPredictions = true;
+          this.showGroundTruth = false;
+          predButton.className = 'button is-info is-selected';
+          gtButton.className = 'button is-light';
+        }
+        this.updateAllViewers();
+      });
+      
+      gtButton.addEventListener('click', () => {
+        if (this.showGroundTruth) {
+          // Turn off ground truth - gray out the button
+          this.showGroundTruth = false;
+          gtButton.className = 'button is-light';
+        } else {
+          // Turn on ground truth, turn off predictions
+          this.showGroundTruth = true;
+          this.showPredictions = false;
+          gtButton.className = 'button is-success is-selected';
+          predButton.className = 'button is-light';
+        }
+        this.updateAllViewers();
+      });
+    }, 500);
+  }
+
+  setupCarouselControls() {
+    // Wait for the page to load and carousel to initialize
+    setTimeout(() => {
+      const carousel = document.getElementById('results-carousel');
+      if (carousel) {
+        // Initialize Bulma carousel with custom settings
+        const carouselInstances = bulmaCarousel.attach('#results-carousel', {
+          slidesToScroll: 1,
+          slidesToShow: 1,
+          infinite: false, // Disable infinite scrolling
+          pagination: false,
+          navigation: true,
+          navigationKeys: true,
+          navigationSwipe: true,
+          effect: 'slide',
+          duration: 600,
+          timing: 'ease'
+        });
+
+        if (carouselInstances.length > 0) {
+          this.carouselInstance = carouselInstances[0];
+          
+          // Add event listeners to track position and manage boundaries
+          this.carouselInstance.on('before:show', (state) => {
+            this.currentIndex = state.next;
+            this.updateNavigationButtons();
+          });
+
+          // Initial button state
+          this.updateNavigationButtons();
+        }
+      }
+    }, 1000);
+  }
+
+  updateNavigationButtons() {
+    const prevButton = document.querySelector('#results-carousel .carousel-nav-left');
+    const nextButton = document.querySelector('#results-carousel .carousel-nav-right');
+    
+    if (prevButton && nextButton) {
+      // Disable previous button at start
+      if (this.currentIndex === 0) {
+        prevButton.style.opacity = '0.3';
+        prevButton.style.pointerEvents = 'none';
+      } else {
+        prevButton.style.opacity = '1';
+        prevButton.style.pointerEvents = 'auto';
+      }
+
+      // Disable next button at end
+      const maxIndex = Math.min(this.pointClouds.length - 1, 7);
+      if (this.currentIndex >= maxIndex) {
+        nextButton.style.opacity = '0.3';
+        nextButton.style.pointerEvents = 'none';
+      } else {
+        nextButton.style.opacity = '1';
+        nextButton.style.pointerEvents = 'auto';
+      }
+    }
+  }
+
+  updateAllViewers() {
+    // Update all viewers when checkbox states change
+    this.viewers.forEach((viewer, index) => {
+      this.updateViewerDisplay(viewer, index);
+    });
+  }
+
+  updateViewerDisplay(viewer, index) {
+    // Remove existing polylines
+    if (viewer.polylines) {
+      viewer.polylines.forEach(line => viewer.scene.remove(line));
+      viewer.polylines = [];
+    }
+    
+    // Point cloud is always visible
+    if (viewer.pointsMesh) {
+      viewer.pointsMesh.visible = true;
+    }
+    
+    // Add polylines based on checkbox states
+    if (this.polylineData[index]) {
+      const polylinesToAdd = [];
+      
+      // Add Ground Truth polylines if checkbox is checked
+      if (this.showGroundTruth) {
+        const gtPolylines = this.createPolylines(this.polylineData[index], 'gt');
+        polylinesToAdd.push(...gtPolylines);
+      }
+      
+      // Add Prediction polylines if checkbox is checked
+      if (this.showPredictions) {
+        const predPolylines = this.createPolylines(this.polylineData[index], 'pred');
+        polylinesToAdd.push(...predPolylines);
+      }
+      
+      viewer.polylines = polylinesToAdd;
+      viewer.polylines.forEach(line => viewer.scene.add(line));
+    }
+  }
+
+  createPolylines(data, mode) {
+    const polylines = [];
+    const polylineData = data[mode];
+    
+    if (!polylineData) return polylines;
+    
+    polylineData.forEach(item => {
+      if (item.points && item.points.length > 1) {
+        const points = item.points.map(p => new THREE.Vector3(p[0], p[1], p[2]));
+        const color = this.classColors[item.class] || 0xffffff;
+
+        const curve = new THREE.CatmullRomCurve3(points);
+        const tubeGeometry = new THREE.TubeGeometry(curve, 100, 0.01, 8, false);
+        const tubeMaterial = new THREE.MeshBasicMaterial({ color: color });
+        const tube = new THREE.Mesh(tubeGeometry, tubeMaterial);
+        polylines.push(tube);
+
+        // --- Add end caps ---
+        const startCap = new THREE.CircleGeometry(0.01, 8); // same radius & segments as tube
+        const endCap   = new THREE.CircleGeometry(0.01, 8);
+
+        const startCapMesh = new THREE.Mesh(startCap, tubeMaterial);
+        const endCapMesh   = new THREE.Mesh(endCap, tubeMaterial);
+
+        // Orient caps to face along the tube direction
+        const startDir = new THREE.Vector3().subVectors(points[1], points[0]).normalize();
+        const endDir   = new THREE.Vector3().subVectors(points[points.length - 2], points[points.length - 1]).normalize();
+
+        // position & rotate start cap
+        startCapMesh.position.copy(points[0]);
+        startCapMesh.lookAt(points[0].clone().sub(startDir));
+
+        // position & rotate end cap
+        endCapMesh.position.copy(points[points.length - 1]);
+        endCapMesh.lookAt(points[points.length - 1].clone().sub(endDir));
+
+         polylines.push(startCapMesh);
+         polylines.push(endCapMesh);
+      }
+    });
+    
+    return polylines;
+  }
+
+  initViewer(container, geometry, index) {
+    try {
+      // Clear any existing content
+      container.innerHTML = '';
+      
+      // Validate geometry
+      if (!geometry || !geometry.attributes || !geometry.attributes.position) {
+        console.error(`Invalid geometry for viewer ${index}`);
+        return;
+      }
+      
+      // Calculate bounding box for auto-scaling
+      geometry.computeBoundingBox();
+      const boundingBox = geometry.boundingBox;
+      const center = boundingBox.getCenter(new THREE.Vector3());
+      const size = boundingBox.getSize(new THREE.Vector3());
+      const maxDimension = Math.max(size.x, size.y, size.z);
+      
+      // Scene setup
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xf8f9fa); // Light background
+
+      // Camera setup with auto-scaling
+      const aspect = container.offsetWidth / container.offsetHeight || 1;
+      const camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
+      
+      // Position camera based on point cloud size
+      const distance = maxDimension; // Scale factor for good view
+      camera.position.set(
+        center.x + distance,
+        center.y + distance,
+        center.z + distance
+      );
+      camera.lookAt(center);
+
+      // Renderer setup
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(container.offsetWidth || 400, container.offsetHeight || 400);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      container.appendChild(renderer.domElement);
+
+      // Create point material with gray color
+      const pointSize = Math.max(0.01, maxDimension * 0.01); // Adaptive point size
+      const material = new THREE.PointsMaterial({
+        size: pointSize,
+        color: 0x969696, // Gray color
+        transparent: true,
+        opacity: 0.7,
+        sizeAttenuation: true
+      });
+
+      // Create points mesh
+      const points = new THREE.Points(geometry, material);
+      scene.add(points);
+
+      // Add orbit controls with adaptive settings
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.1;
+      controls.enableZoom = true;
+      controls.enablePan = true;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 5; // Faster auto-rotate
+      controls.target.copy(center); // Set target to center of point cloud
+      
+      // Set zoom limits based on point cloud size
+      controls.minDistance = maxDimension * 0.5;
+      controls.maxDistance = maxDimension * 10;
+
+      // Add better lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+      scene.add(ambientLight);
+
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+      directionalLight.position.set(
+        center.x + distance,
+        center.y + distance,
+        center.z + distance
+      );
+      directionalLight.castShadow = true;
+      scene.add(directionalLight);
+
+      // Animation loop
+      const animate = () => {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      };
+
+      animate();
+
+      // Store reference with points mesh and polylines array
+      const viewer = { 
+        scene, 
+        camera, 
+        renderer, 
+        controls, 
+        container, 
+        index: index - 1, // Fix: use zero-based index for polylineData access
+        pointsMesh: points,
+        polylines: []
+      };
+      
+      this.viewers.push(viewer);
+
+      // Initialize display based on current mode
+      this.updateViewerDisplay(viewer, index - 1); // Fix: pass zero-based index
+
+      // Handle resize
+      const handleResize = () => {
+        const width = container.offsetWidth || 400;
+        const height = container.offsetHeight || 400;
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height);
+      };
+
+      const resizeObserver = new ResizeObserver(handleResize);
+      resizeObserver.observe(container);
+
+      console.log(`Successfully initialized viewer ${index} with auto-scale (max dimension: ${maxDimension.toFixed(2)})`);
+      
+    } catch (error) {
+      console.error(`Error initializing viewer ${index}:`, error);
+    }
+  }
+}
+
+// Point Cloud Initialization (existing function)
+function initPointCloud() {
+const canvas = document.getElementById('pointcloud-canvas');
+if (!canvas) return;
+
+// Scene setup
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a1a);
+
+// Camera setup
+const camera = new THREE.PerspectiveCamera(
+    75,
+    canvas.offsetWidth / canvas.offsetHeight,
+    0.1,
+    1000
+);
+camera.position.set(0, 0, 5);
+
+// Renderer setup
+const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+renderer.setSize(canvas.offsetWidth, canvas.offsetHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+
+// Create point cloud geometry
+const pointCount = 100;
+const geometry = new THREE.BufferGeometry();
+const positions = new Float32Array(pointCount * 3);
+const colors = new Float32Array(pointCount * 3);
+
+// Generate random points
+for (let i = 0; i < pointCount; i++) {
+    const i3 = i * 3;
+    
+    // Random positions in a cube
+    positions[i3] = (Math.random() - 0.5) * 4;     // x
+    positions[i3 + 1] = (Math.random() - 0.5) * 4; // y
+    positions[i3 + 2] = (Math.random() - 0.5) * 4; // z
+
+    // Random colors
+    colors[i3] = Math.random();     // r
+    colors[i3 + 1] = Math.random(); // g
+    colors[i3 + 2] = Math.random(); // b
+}
+
+geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+// Create point material
+const material = new THREE.PointsMaterial({
+    size: 0.05,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.8
+});
+
+// Create points mesh
+const points = new THREE.Points(geometry, material);
+scene.add(points);
+
+// Add orbit controls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.enableZoom = true;
+controls.enablePan = true;
+
+// Add ambient light
+const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+scene.add(ambientLight);
+
+// Add directional light
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+directionalLight.position.set(1, 1, 1);
+scene.add(directionalLight);
+
+// Animation loop
+function animate() {
+    requestAnimationFrame(animate);
+    
+    // Rotate the point cloud slowly
+    points.rotation.y += 0.005;
+    
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+// Handle window resize
+function onWindowResize() {
+    camera.aspect = canvas.offsetWidth / canvas.offsetHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(canvas.offsetWidth, canvas.offsetHeight);
+}
+
+window.addEventListener('resize', onWindowResize);
+
+// Start animation
+animate();
+}
+
+function initAdvancedPointCloud() {
+const canvas = document.getElementById('advanced-pointcloud-canvas');
+if (!canvas) return;
+
+// Scene setup
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a0a);
+
+// Camera setup
+const camera = new THREE.PerspectiveCamera(
+    75,
+    canvas.offsetWidth / canvas.offsetHeight,
+    0.1,
+    1000
+);
+camera.position.set(3, 3, 5);
+
+// Renderer setup
+const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+renderer.setSize(canvas.offsetWidth, canvas.offsetHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+
+// Variables for dynamic control
+let pointCount = 100;
+let pointSize = 0.05;
+let autoRotate = true;
+let showConnections = false;
+let points, lines;
+let pointsGeometry, linesGeometry;
+
+// Create initial point cloud
+function createPointCloud() {
+    // Remove existing points and lines
+    if (points) scene.remove(points);
+    if (lines) scene.remove(lines);
+
+    // Create points geometry
+    pointsGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(pointCount * 3);
+    const colors = new Float32Array(pointCount * 3);
+
+    // Generate random points with more interesting distribution
+    for (let i = 0; i < pointCount; i++) {
+    const i3 = i * 3;
+    
+    // Create clustered random distribution
+    const cluster = Math.floor(Math.random() * 3);
+    const clusterOffset = [
+        [0, 0, 0],
+        [2, 1, -1],
+        [-1, -2, 1]
+    ][cluster];
+
+    positions[i3] = (Math.random() - 0.5) * 2 + clusterOffset[0];
+    positions[i3 + 1] = (Math.random() - 0.5) * 2 + clusterOffset[1];
+    positions[i3 + 2] = (Math.random() - 0.5) * 2 + clusterOffset[2];
+
+    // Color based on position and cluster
+    const hue = (cluster * 0.3 + Math.random() * 0.2) % 1;
+    const color = new THREE.Color().setHSL(hue, 0.8, 0.6);
+    colors[i3] = color.r;
+    colors[i3 + 1] = color.g;
+    colors[i3 + 2] = color.b;
+    }
+
+    pointsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    pointsGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    // Create points material
+    const pointsMaterial = new THREE.PointsMaterial({
+    size: pointSize,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.9,
+    sizeAttenuation: true
+    });
+
+    // Create points mesh
+    points = new THREE.Points(pointsGeometry, pointsMaterial);
+    scene.add(points);
+
+    // Create connections if enabled
+    if (showConnections) {
+    createConnections();
+    }
+}
+
+function createConnections() {
+    if (lines) scene.remove(lines);
+
+    const positions = pointsGeometry.attributes.position.array;
+    const linePositions = [];
+    const lineColors = [];
+
+    // Connect nearby points
+    for (let i = 0; i < pointCount; i++) {
+    const i3 = i * 3;
+    const pos1 = new THREE.Vector3(positions[i3], positions[i3 + 1], positions[i3 + 2]);
+
+    let connections = 0;
+    for (let j = i + 1; j < pointCount && connections < 3; j++) {
+        const j3 = j * 3;
+        const pos2 = new THREE.Vector3(positions[j3], positions[j3 + 1], positions[j3 + 2]);
+        
+        if (pos1.distanceTo(pos2) < 1.5) {
+        linePositions.push(pos1.x, pos1.y, pos1.z);
+        linePositions.push(pos2.x, pos2.y, pos2.z);
+        
+        // Line color based on distance
+        const distance = pos1.distanceTo(pos2);
+        const intensity = 1 - (distance / 1.5);
+        lineColors.push(intensity, intensity * 0.5, intensity * 0.8);
+        lineColors.push(intensity, intensity * 0.5, intensity * 0.8);
+        
+        connections++;
+        }
+    }
+    }
+
+    linesGeometry = new THREE.BufferGeometry();
+    linesGeometry.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+    linesGeometry.setAttribute('color', new THREE.Float32BufferAttribute(lineColors, 3));
+
+    const linesMaterial = new THREE.LineBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.3
+    });
+
+    lines = new THREE.LineSegments(linesGeometry, linesMaterial);
+    scene.add(lines);
+}
+
+// Add orbit controls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.enableZoom = true;
+controls.enablePan = true;
+
+// Add lighting
+const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+scene.add(ambientLight);
+
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+directionalLight.position.set(2, 2, 2);
+scene.add(directionalLight);
+
+// UI Controls
+const pointCountSlider = document.getElementById('point-count-slider');
+const pointCountDisplay = document.getElementById('point-count-display');
+const pointSizeSlider = document.getElementById('point-size-slider');
+const pointSizeDisplay = document.getElementById('point-size-display');
+const autoRotateCheckbox = document.getElementById('auto-rotate-checkbox');
+const connectionsCheckbox = document.getElementById('show-connections-checkbox');
+const regenerateButton = document.getElementById('regenerate-points');
+const resetCameraButton = document.getElementById('reset-camera');
+
+// Event listeners
+if (pointCountSlider) {
+    pointCountSlider.addEventListener('input', (e) => {
+    pointCount = parseInt(e.target.value);
+    pointCountDisplay.textContent = pointCount;
+    createPointCloud();
+    });
+}
+
+if (pointSizeSlider) {
+    pointSizeSlider.addEventListener('input', (e) => {
+    pointSize = parseFloat(e.target.value);
+    pointSizeDisplay.textContent = pointSize.toFixed(2);
+    if (points) {
+        points.material.size = pointSize;
+    }
+    });
+}
+
+if (autoRotateCheckbox) {
+    autoRotateCheckbox.addEventListener('change', (e) => {
+    autoRotate = e.target.checked;
+    });
+}
+
+if (connectionsCheckbox) {
+    connectionsCheckbox.addEventListener('change', (e) => {
+    showConnections = e.target.checked;
+    createPointCloud();
+    });
+}
+
+if (regenerateButton) {
+    regenerateButton.addEventListener('click', () => {
+    createPointCloud();
+    });
+}
+
+if (resetCameraButton) {
+    resetCameraButton.addEventListener('click', () => {
+    camera.position.set(3, 3, 5);
+    camera.lookAt(0, 0, 0);
+    controls.reset();
+    });
+}
+
+// Animation loop
+function animate() {
+    requestAnimationFrame(animate);
+    
+    if (autoRotate && points) {
+    points.rotation.y += 0.003;
+    if (lines) lines.rotation.y += 0.003;
+    }
+    
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+// Handle window resize
+function onWindowResize() {
+    camera.aspect = canvas.offsetWidth / canvas.offsetHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(canvas.offsetWidth, canvas.offsetHeight);
+}
+
+window.addEventListener('resize', onWindowResize);
+
+// Initialize
+createPointCloud();
+animate();
+}
+
+// Initialize Point Cloud Carousel
+function initPointCloudCarousel() {
+  new PointCloudCarousel();
+}
+
+// Initialize when DOM is loaded and THREE.js is available
+document.addEventListener('DOMContentLoaded', () => {
+  initPointCloud();
+  initAdvancedPointCloud();
+  initPointCloudCarousel();
+});
