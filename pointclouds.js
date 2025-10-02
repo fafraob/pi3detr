@@ -74,76 +74,384 @@ class PointCloudCarousel {
     this.viewers = [];
     this.currentIndex = 0;
     this.carouselInstance = null;
-    this.showGroundTruth = false; // separate flag for GT
-    this.showPredictions = true; // Default to true - predictions active by default
-
-
+    this.showGroundTruth = false;
+    this.showPredictions = true;
 
     this.classColors = {
-      1: 0xffa300, // red
-      2: 0x0000ff, // green
-      3: 0x00ff00, // blue
-      4: 0xff0000  // orange
+      1: 0xffa300,
+      2: 0x0000ff,
+      3: 0x00ff00,
+      4: 0xff0000
     };
-
-
     
-    // Add loading states
     this.isLoading = true;
     this.loadingElements = new Map();
+    
+    // Add caching and optimization properties
+    this.geometryCache = new Map();
+    this.materialCache = new Map();
+    this.loadedCount = 0;
+    this.targetCount = 20; // Max viewers to create
     
     this.loadPointClouds();
   }
 
   async loadPointClouds() {
-    // Show loading for all carousel slots first
     this.showLoadingForAllSlots();
     
     const loader = new XYZLoader();
     const baseUrl = './pointcloud/pointcloud_';
     
-    // Try to load point clouds (01 to 50, but we'll use what we find)
-    for (let i = 1; i <= 50; i++) {
+    // Create array of promises for parallel loading
+    const loadPromises = [];
+    const maxFiles = 50;
+    
+    for (let i = 1; i <= maxFiles; i++) {
       const paddedNumber = i.toString().padStart(2, '0');
       const url = `${baseUrl}${paddedNumber}.xyz`;
       
-      try {
-        await new Promise((resolve, reject) => {
-          loader.load(
-            url,
-            (geometry) => {
-              this.pointClouds.push(geometry);
-              resolve();
-            },
-            undefined,
-            reject
-          );
-        });
-      } catch (error) {
-        // Stop trying when we can't load more files
-        console.log(`Loaded ${this.pointClouds.length} XYZ files`);
-        break;
-      }
+      loadPromises.push(
+        this.loadSinglePointCloud(loader, url, i - 1)
+          .catch(() => null) // Return null for failed loads
+      );
     }
 
-    // If no XYZ files were loaded, create sample point clouds
+    // Load all point clouds in parallel with progressive updates
+    const results = await Promise.allSettled(loadPromises);
+    
+    // Filter successful loads and maintain order
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value) {
+        this.pointClouds[index] = result.value;
+        this.loadedCount++;
+        
+        // Initialize viewer immediately when geometry is ready
+        this.initViewerWhenReady(index + 1);
+      }
+    });
+
+    // Remove empty slots and compact array
+    this.pointClouds = this.pointClouds.filter(Boolean);
+    
+    console.log(`Loaded ${this.pointClouds.length} XYZ files in parallel`);
+
+    // If no XYZ files were loaded, create sample point clouds quickly
     if (this.pointClouds.length === 0) {
       console.log('No XYZ files found, creating sample point clouds...');
       this.createSamplePointClouds();
+      this.initAllViewers();
     }
 
-    // Load corresponding polyline data
-    await this.loadPolylineData();
-
-    // Don't duplicate - use only the actual point clouds we have
-    console.log(`Using ${this.pointClouds.length} point clouds for carousel`);
-
-    // Initialize carousel viewers and setup boundary controls
-    this.initCarouselViewers();
-    this.setupCarouselControls();
+    // Load polyline data in background
+    this.loadPolylineDataAsync();
     
-    // Mark loading as complete
+    // Setup carousel controls
+    this.setupCarouselControls();
+    this.addDisplayModeToggleButton();
+    
     this.isLoading = false;
+  }
+
+  async loadSinglePointCloud(loader, url, index) {
+    return new Promise((resolve, reject) => {
+      loader.load(
+        url,
+        (geometry) => {
+          // Cache geometry for potential reuse
+          this.cacheGeometry(geometry, index);
+          resolve(geometry);
+        },
+        undefined,
+        reject
+      );
+    });
+  }
+
+  cacheGeometry(geometry, index) {
+    // Store in cache with index as key
+    this.geometryCache.set(index, geometry);
+    
+    // Pre-compute bounding box for faster viewer initialization
+    geometry.computeBoundingBox();
+  }
+
+  initViewerWhenReady(slotIndex) {
+    // Use requestIdleCallback for non-blocking initialization
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(() => {
+        this.initSingleViewer(slotIndex);
+      });
+    } else {
+      // Fallback for browsers without requestIdleCallback
+      setTimeout(() => {
+        this.initSingleViewer(slotIndex);
+      }, 16); // ~60fps
+    }
+  }
+
+  initSingleViewer(slotIndex) {
+    if (slotIndex > this.targetCount) return;
+    
+    const container = document.getElementById(`pointcloud-viewer-${slotIndex}`);
+    if (!container) return;
+
+    const geometry = this.pointClouds[slotIndex - 1];
+    if (!geometry) return;
+
+    // Initialize viewer with optimizations
+    this.initViewer(container, geometry, slotIndex);
+  }
+
+  initAllViewers() {
+    // Initialize all viewers for sample data
+    const slotsToCreate = Math.min(this.targetCount, this.pointClouds.length);
+    
+    for (let i = 1; i <= slotsToCreate; i++) {
+      this.initViewerWhenReady(i);
+    }
+
+    // Hide unused slots
+    for (let i = slotsToCreate + 1; i <= 20; i++) {
+      const item = document.querySelector(`.item-pointcloud-${i}`);
+      if (item) {
+        item.style.display = 'none';
+      }
+      this.hideLoading(i);
+    }
+  }
+
+  async loadPolylineDataAsync() {
+    // Load polyline data in background without blocking UI
+    const baseUrl = './pointcloud/pointcloud_';
+    const loadPromises = [];
+    
+    for (let i = 0; i < this.pointClouds.length; i++) {
+      const paddedNumber = (i + 1).toString().padStart(2, '0');
+      const jsonUrl = `${baseUrl}${paddedNumber}.json`;
+      
+      loadPromises.push(
+        fetch(jsonUrl)
+          .then(response => response.ok ? response.json() : null)
+          .catch(() => null)
+      );
+    }
+
+    const results = await Promise.allSettled(loadPromises);
+    
+    results.forEach((result, index) => {
+      const data = result.status === 'fulfilled' ? result.value : null;
+      this.polylineData[index] = data;
+    });
+
+    // Update viewers with polyline data when ready
+    this.updateAllViewersAsync();
+  }
+
+  updateAllViewersAsync() {
+    // Update viewers in small batches to avoid blocking
+    const batchSize = 3;
+    let currentBatch = 0;
+
+    const updateBatch = () => {
+      const start = currentBatch * batchSize;
+      const end = Math.min(start + batchSize, this.viewers.length);
+
+      for (let i = start; i < end; i++) {
+        this.updateViewerDisplay(this.viewers[i], i);
+      }
+
+      currentBatch++;
+      
+      if (end < this.viewers.length) {
+        // Use requestAnimationFrame for smooth updates
+        requestAnimationFrame(updateBatch);
+      }
+    };
+
+    if (this.viewers.length > 0) {
+      updateBatch();
+    }
+  }
+
+  getCachedMaterial(key, materialConfig) {
+    if (!this.materialCache.has(key)) {
+      this.materialCache.set(key, new THREE.PointsMaterial(materialConfig));
+    }
+    return this.materialCache.get(key);
+  }
+
+  initViewer(container, geometry, index) {
+    try {
+      this.hideLoading(index);
+      container.innerHTML = '';
+      
+      if (!geometry || !geometry.attributes || !geometry.attributes.position) {
+        console.error(`Invalid geometry for viewer ${index}`);
+        return;
+      }
+      
+      // Use cached bounding box if available
+      const boundingBox = geometry.boundingBox;
+      const center = boundingBox.getCenter(new THREE.Vector3());
+      const size = boundingBox.getSize(new THREE.Vector3());
+      const maxDimension = Math.max(size.x, size.y, size.z);
+      
+      // Scene setup with optimizations
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xf8f9fa);
+
+      // Camera setup
+      const aspect = container.offsetWidth / container.offsetHeight || 1;
+      const camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
+      
+      const distance = maxDimension;
+      camera.position.set(
+        center.x + distance,
+        center.y + distance,
+        center.z + distance
+      );
+      camera.lookAt(center);
+
+      // Renderer setup with performance optimizations
+      const renderer = new THREE.WebGLRenderer({ 
+        antialias: false, // Disable for better performance
+        alpha: true,
+        powerPreference: "high-performance"
+      });
+      renderer.setSize(container.offsetWidth || 400, container.offsetHeight || 400);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Limit pixel ratio
+      
+      // Disable expensive features for better performance
+      renderer.shadowMap.enabled = false;
+      
+      container.appendChild(renderer.domElement);
+
+      // Use cached material
+      const pointSize = Math.max(0.01, maxDimension * 0.01);
+      const material = this.getCachedMaterial('points', {
+        size: pointSize,
+        color: 0x969696,
+        transparent: true,
+        opacity: 0.7,
+        sizeAttenuation: true
+      });
+
+      // Create points mesh
+      const points = new THREE.Points(geometry, material.clone()); // Clone to allow individual sizing
+      points.material.size = pointSize;
+      scene.add(points);
+
+      // Simplified controls for better performance
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.1;
+      controls.enableZoom = true;
+      controls.enablePan = true;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 3; // Slightly slower for smoother performance
+      controls.target.copy(center);
+      
+      controls.minDistance = maxDimension * 0.5;
+      controls.maxDistance = maxDimension * 10;
+
+      // Simplified lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+      scene.add(ambientLight);
+
+      // Optimized animation loop
+      let animationId;
+      const animate = () => {
+        animationId = requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      };
+
+      animate();
+
+      // Store viewer reference
+      const viewer = { 
+        scene, 
+        camera, 
+        renderer, 
+        controls, 
+        container, 
+        index: index - 1,
+        pointsMesh: points,
+        polylines: [],
+        animationId // Store for cleanup
+      };
+      
+      this.viewers.push(viewer);
+
+      // Update display if polyline data is ready
+      if (this.polylineData[index - 1]) {
+        this.updateViewerDisplay(viewer, index - 1);
+      }
+
+      // Optimized resize handler
+      let resizeTimeout;
+      const handleResize = () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+          const width = container.offsetWidth || 400;
+          const height = container.offsetHeight || 400;
+          camera.aspect = width / height;
+          camera.updateProjectionMatrix();
+          renderer.setSize(width, height);
+        }, 100); // Debounce resize
+      };
+
+      const resizeObserver = new ResizeObserver(handleResize);
+      resizeObserver.observe(container);
+
+      console.log(`Optimized viewer ${index} initialized (${maxDimension.toFixed(2)})`);
+      
+    } catch (error) {
+      console.error(`Error initializing viewer ${index}:`, error);
+      this.showError(container, index, error.message);
+    }
+  }
+
+  // Override initCarouselViewers to use the new progressive loading
+  initCarouselViewers() {
+    if (this.pointClouds.length === 0) {
+      console.error('No point clouds available for carousel');
+      return;
+    }
+
+    console.log(`Progressive loading ${this.pointClouds.length} point clouds`);
+    
+    // Viewers are now initialized progressively in initViewerWhenReady
+    // Just handle the display of unused slots
+    setTimeout(() => {
+      const slotsToShow = Math.min(this.targetCount, this.pointClouds.length);
+      
+      for (let i = slotsToShow + 1; i <= 20; i++) {
+        const item = document.querySelector(`.item-pointcloud-${i}`);
+        if (item) {
+          item.style.display = 'none';
+        }
+        this.hideLoading(i);
+      }
+    }, 1000);
+
+    this.addDisplayModeToggleButton();
+  }
+
+  // Add cleanup method for better memory management
+  cleanup() {
+    this.viewers.forEach(viewer => {
+      if (viewer.animationId) {
+        cancelAnimationFrame(viewer.animationId);
+      }
+      if (viewer.renderer) {
+        viewer.renderer.dispose();
+      }
+    });
+    
+    // Clear caches
+    this.geometryCache.clear();
+    this.materialCache.clear();
   }
 
   showLoadingForAllSlots() {
@@ -179,28 +487,6 @@ class PointCloudCarousel {
     if (loadingElement && loadingElement.parentNode) {
       loadingElement.remove();
       this.loadingElements.delete(slotNumber);
-    }
-  }
-
-  async loadPolylineData() {
-    const baseUrl = './pointcloud/pointcloud_';
-    
-    for (let i = 0; i < this.pointClouds.length; i++) {
-      const paddedNumber = (i + 1).toString().padStart(2, '0');
-      const jsonUrl = `${baseUrl}${paddedNumber}.json`;
-      
-      try {
-        const response = await fetch(jsonUrl);
-        if (response.ok) {
-          const data = await response.json();
-          this.polylineData.push(data);
-        } else {
-          this.polylineData.push(null);
-        }
-      } catch (error) {
-        console.log(`No JSON file found for pointcloud_${paddedNumber}`);
-        this.polylineData.push(null);
-      }
     }
   }
 
@@ -334,71 +620,19 @@ class PointCloudCarousel {
     return geometry;
   }
 
-  initCarouselViewers() {
-    // Ensure we have at least one point cloud
-    if (this.pointClouds.length === 0) {
-      console.error('No point clouds available for carousel');
-      return;
-    }
-
-    console.log(`Initializing carousel with ${this.pointClouds.length} point clouds`);
-
-    // Initialize only the slots we have point clouds for (max 8)
-    const slotsToCreate = Math.min(20, this.pointClouds.length);
-    
-    for (let i = 1; i <= slotsToCreate; i++) {
-      const container = document.getElementById(`pointcloud-viewer-${i}`);
-      if (container) {
-        // Use direct indexing without modulo
-        const pointCloudIndex = i - 1;
-        const geometry = this.pointClouds[pointCloudIndex];
-        
-        console.log(`Slot ${i} using point cloud ${pointCloudIndex}`);
-        
-        if (!geometry) {
-          console.error(`No geometry found for slot ${i}, index ${pointCloudIndex}`);
-          continue;
-        }
-        
-        // Add a small delay to ensure DOM is ready, then initialize
-        setTimeout(() => {
-          this.initViewer(container, geometry, i);
-        }, 50 * i);
-      } else {
-        console.warn(`Container pointcloud-viewer-${i} not found`);
-      }
-    }
-
-    // Hide unused carousel items and their loading states
-    for (let i = slotsToCreate + 1; i <= 20; i++) {
-      const item = document.querySelector(`.item-pointcloud-${i}`);
-      if (item) {
-        item.style.display = 'none';
-      }
-      this.hideLoading(i);
-    }
-
-    // Add display mode toggle button after viewers are initialized
-    this.addDisplayModeToggleButton();
-  }
-
   addDisplayModeToggleButton() {
-    // Wait for DOM to be ready
     setTimeout(() => {
       const carouselContainer = document.getElementById('results-carousel').parentElement;
       
-      // Create container for toggle buttons
       const buttonContainer = document.createElement('div');
       buttonContainer.className = 'field has-addons mb-3';
       buttonContainer.style.marginBottom = '10px';
       
-      // Create container for the button group
       const buttonGroup = document.createElement('div');
       buttonGroup.className = 'control';
       
-      // Create Predictions toggle button (first, active by default)
       const predButton = document.createElement('button');
-      predButton.className = 'button is-info is-selected'; // Active by default
+      predButton.className = 'button is-info is-selected';
       predButton.id = 'toggle-predictions-btn';
       predButton.innerHTML = `
         <span class="icon">
@@ -407,9 +641,8 @@ class PointCloudCarousel {
         <span>Predictions</span>
       `;
       
-      // Create Ground Truth toggle button (second, grayed out by default)
       const gtButton = document.createElement('button');
-      gtButton.className = 'button is-light'; // Grayed out by default
+      gtButton.className = 'button is-light';
       gtButton.id = 'toggle-ground-truth-btn';
       gtButton.innerHTML = `
         <span class="icon">
@@ -422,17 +655,13 @@ class PointCloudCarousel {
       buttonGroup.appendChild(gtButton);
       buttonContainer.appendChild(buttonGroup);
       
-      // Insert before carousel
       carouselContainer.insertBefore(buttonContainer, carouselContainer.firstChild);
       
-      // Add event listeners for toggle functionality
       predButton.addEventListener('click', () => {
         if (this.showPredictions) {
-          // Turn off predictions - gray out the button
           this.showPredictions = false;
           predButton.className = 'button is-light';
         } else {
-          // Turn on predictions, turn off ground truth
           this.showPredictions = true;
           this.showGroundTruth = false;
           predButton.className = 'button is-info is-selected';
@@ -443,11 +672,9 @@ class PointCloudCarousel {
       
       gtButton.addEventListener('click', () => {
         if (this.showGroundTruth) {
-          // Turn off ground truth - gray out the button
           this.showGroundTruth = false;
           gtButton.className = 'button is-light';
         } else {
-          // Turn on ground truth, turn off predictions
           this.showGroundTruth = true;
           this.showPredictions = false;
           gtButton.className = 'button is-success is-selected';
@@ -459,15 +686,13 @@ class PointCloudCarousel {
   }
 
   setupCarouselControls() {
-    // Wait for the page to load and carousel to initialize
     setTimeout(() => {
       const carousel = document.getElementById('results-carousel');
       if (carousel) {
-        // Initialize Bulma carousel with custom settings
         const carouselInstances = bulmaCarousel.attach('#results-carousel', {
           slidesToScroll: 1,
           slidesToShow: 1,
-          infinite: false, // Disable infinite scrolling
+          infinite: false,
           pagination: false,
           navigation: true,
           navigationKeys: true,
@@ -480,13 +705,11 @@ class PointCloudCarousel {
         if (carouselInstances.length > 0) {
           this.carouselInstance = carouselInstances[0];
           
-          // Add event listeners to track position and manage boundaries
           this.carouselInstance.on('before:show', (state) => {
             this.currentIndex = state.next;
             this.updateNavigationButtons();
           });
 
-          // Initial button state
           this.updateNavigationButtons();
         }
       }
@@ -498,7 +721,6 @@ class PointCloudCarousel {
     const nextButton = document.querySelector('#results-carousel .carousel-nav-right');
     
     if (prevButton && nextButton) {
-      // Disable previous button at start
       if (this.currentIndex === 0) {
         prevButton.style.opacity = '0.3';
         prevButton.style.pointerEvents = 'none';
@@ -507,7 +729,6 @@ class PointCloudCarousel {
         prevButton.style.pointerEvents = 'auto';
       }
 
-      // Disable next button at end
       const maxIndex = Math.min(this.pointClouds.length - 1, 7);
       if (this.currentIndex >= maxIndex) {
         nextButton.style.opacity = '0.3';
@@ -520,35 +741,29 @@ class PointCloudCarousel {
   }
 
   updateAllViewers() {
-    // Update all viewers when checkbox states change
     this.viewers.forEach((viewer, index) => {
       this.updateViewerDisplay(viewer, index);
     });
   }
 
   updateViewerDisplay(viewer, index) {
-    // Remove existing polylines
     if (viewer.polylines) {
       viewer.polylines.forEach(line => viewer.scene.remove(line));
       viewer.polylines = [];
     }
     
-    // Point cloud is always visible
     if (viewer.pointsMesh) {
       viewer.pointsMesh.visible = true;
     }
     
-    // Add polylines based on checkbox states
     if (this.polylineData[index]) {
       const polylinesToAdd = [];
       
-      // Add Ground Truth polylines if checkbox is checked
       if (this.showGroundTruth) {
         const gtPolylines = this.createPolylines(this.polylineData[index], 'gt');
         polylinesToAdd.push(...gtPolylines);
       }
       
-      // Add Prediction polylines if checkbox is checked
       if (this.showPredictions) {
         const predPolylines = this.createPolylines(this.polylineData[index], 'pred');
         polylinesToAdd.push(...predPolylines);
@@ -576,22 +791,18 @@ class PointCloudCarousel {
         const tube = new THREE.Mesh(tubeGeometry, tubeMaterial);
         polylines.push(tube);
 
-        // --- Add end caps ---
-        const startCap = new THREE.CircleGeometry(0.01, 8); // same radius & segments as tube
+        const startCap = new THREE.CircleGeometry(0.01, 8);
         const endCap   = new THREE.CircleGeometry(0.01, 8);
 
         const startCapMesh = new THREE.Mesh(startCap, tubeMaterial);
         const endCapMesh   = new THREE.Mesh(endCap, tubeMaterial);
 
-        // Orient caps to face along the tube direction
         const startDir = new THREE.Vector3().subVectors(points[1], points[0]).normalize();
         const endDir   = new THREE.Vector3().subVectors(points[points.length - 2], points[points.length - 1]).normalize();
 
-        // position & rotate start cap
         startCapMesh.position.copy(points[0]);
         startCapMesh.lookAt(points[0].clone().sub(startDir));
 
-        // position & rotate end cap
         endCapMesh.position.copy(points[points.length - 1]);
         endCapMesh.lookAt(points[points.length - 1].clone().sub(endDir));
 
@@ -601,678 +812,6 @@ class PointCloudCarousel {
     });
     
     return polylines;
-  }
-
-  initCarouselViewers() {
-    // Ensure we have at least one point cloud
-    if (this.pointClouds.length === 0) {
-      console.error('No point clouds available for carousel');
-      return;
-    }
-
-    console.log(`Initializing carousel with ${this.pointClouds.length} point clouds`);
-
-    // Initialize only the slots we have point clouds for (max 8)
-    const slotsToCreate = Math.min(20, this.pointClouds.length);
-    
-    for (let i = 1; i <= slotsToCreate; i++) {
-      const container = document.getElementById(`pointcloud-viewer-${i}`);
-      if (container) {
-        // Use direct indexing without modulo
-        const pointCloudIndex = i - 1;
-        const geometry = this.pointClouds[pointCloudIndex];
-        
-        console.log(`Slot ${i} using point cloud ${pointCloudIndex}`);
-        
-        if (!geometry) {
-          console.error(`No geometry found for slot ${i}, index ${pointCloudIndex}`);
-          continue;
-        }
-        
-        // Add a small delay to ensure DOM is ready, then initialize
-        setTimeout(() => {
-          this.initViewer(container, geometry, i);
-        }, 50 * i);
-      } else {
-        console.warn(`Container pointcloud-viewer-${i} not found`);
-      }
-    }
-
-    // Hide unused carousel items and their loading states
-    for (let i = slotsToCreate + 1; i <= 20; i++) {
-      const item = document.querySelector(`.item-pointcloud-${i}`);
-      if (item) {
-        item.style.display = 'none';
-      }
-      this.hideLoading(i);
-    }
-
-    // Add display mode toggle button after viewers are initialized
-    this.addDisplayModeToggleButton();
-  }
-
-  addDisplayModeToggleButton() {
-    // Wait for DOM to be ready
-    setTimeout(() => {
-      const carouselContainer = document.getElementById('results-carousel').parentElement;
-      
-      // Create container for toggle buttons
-      const buttonContainer = document.createElement('div');
-      buttonContainer.className = 'field has-addons mb-3';
-      buttonContainer.style.marginBottom = '10px';
-      
-      // Create container for the button group
-      const buttonGroup = document.createElement('div');
-      buttonGroup.className = 'control';
-      
-      // Create Predictions toggle button (first, active by default)
-      const predButton = document.createElement('button');
-      predButton.className = 'button is-info is-selected'; // Active by default
-      predButton.id = 'toggle-predictions-btn';
-      predButton.innerHTML = `
-        <span class="icon">
-          <i class="fas fa-brain"></i>
-        </span>
-        <span>Predictions</span>
-      `;
-      
-      // Create Ground Truth toggle button (second, grayed out by default)
-      const gtButton = document.createElement('button');
-      gtButton.className = 'button is-light'; // Grayed out by default
-      gtButton.id = 'toggle-ground-truth-btn';
-      gtButton.innerHTML = `
-        <span class="icon">
-          <i class="fas fa-check-circle"></i>
-        </span>
-        <span>Ground Truth</span>
-      `;
-      
-      buttonGroup.appendChild(predButton);
-      buttonGroup.appendChild(gtButton);
-      buttonContainer.appendChild(buttonGroup);
-      
-      // Insert before carousel
-      carouselContainer.insertBefore(buttonContainer, carouselContainer.firstChild);
-      
-      // Add event listeners for toggle functionality
-      predButton.addEventListener('click', () => {
-        if (this.showPredictions) {
-          // Turn off predictions - gray out the button
-          this.showPredictions = false;
-          predButton.className = 'button is-light';
-        } else {
-          // Turn on predictions, turn off ground truth
-          this.showPredictions = true;
-          this.showGroundTruth = false;
-          predButton.className = 'button is-info is-selected';
-          gtButton.className = 'button is-light';
-        }
-        this.updateAllViewers();
-      });
-      
-      gtButton.addEventListener('click', () => {
-        if (this.showGroundTruth) {
-          // Turn off ground truth - gray out the button
-          this.showGroundTruth = false;
-          gtButton.className = 'button is-light';
-        } else {
-          // Turn on ground truth, turn off predictions
-          this.showGroundTruth = true;
-          this.showPredictions = false;
-          gtButton.className = 'button is-success is-selected';
-          predButton.className = 'button is-light';
-        }
-        this.updateAllViewers();
-      });
-    }, 500);
-  }
-
-  setupCarouselControls() {
-    // Wait for the page to load and carousel to initialize
-    setTimeout(() => {
-      const carousel = document.getElementById('results-carousel');
-      if (carousel) {
-        // Initialize Bulma carousel with custom settings
-        const carouselInstances = bulmaCarousel.attach('#results-carousel', {
-          slidesToScroll: 1,
-          slidesToShow: 1,
-          infinite: false, // Disable infinite scrolling
-          pagination: false,
-          navigation: true,
-          navigationKeys: true,
-          navigationSwipe: true,
-          effect: 'slide',
-          duration: 600,
-          timing: 'ease'
-        });
-
-        if (carouselInstances.length > 0) {
-          this.carouselInstance = carouselInstances[0];
-          
-          // Add event listeners to track position and manage boundaries
-          this.carouselInstance.on('before:show', (state) => {
-            this.currentIndex = state.next;
-            this.updateNavigationButtons();
-          });
-
-          // Initial button state
-          this.updateNavigationButtons();
-        }
-      }
-    }, 1000);
-  }
-
-  updateNavigationButtons() {
-    const prevButton = document.querySelector('#results-carousel .carousel-nav-left');
-    const nextButton = document.querySelector('#results-carousel .carousel-nav-right');
-    
-    if (prevButton && nextButton) {
-      // Disable previous button at start
-      if (this.currentIndex === 0) {
-        prevButton.style.opacity = '0.3';
-        prevButton.style.pointerEvents = 'none';
-      } else {
-        prevButton.style.opacity = '1';
-        prevButton.style.pointerEvents = 'auto';
-      }
-
-      // Disable next button at end
-      const maxIndex = Math.min(this.pointClouds.length - 1, 7);
-      if (this.currentIndex >= maxIndex) {
-        nextButton.style.opacity = '0.3';
-        nextButton.style.pointerEvents = 'none';
-      } else {
-        nextButton.style.opacity = '1';
-        nextButton.style.pointerEvents = 'auto';
-      }
-    }
-  }
-
-  updateAllViewers() {
-    // Update all viewers when checkbox states change
-    this.viewers.forEach((viewer, index) => {
-      this.updateViewerDisplay(viewer, index);
-    });
-  }
-
-  updateViewerDisplay(viewer, index) {
-    // Remove existing polylines
-    if (viewer.polylines) {
-      viewer.polylines.forEach(line => viewer.scene.remove(line));
-      viewer.polylines = [];
-    }
-    
-    // Point cloud is always visible
-    if (viewer.pointsMesh) {
-      viewer.pointsMesh.visible = true;
-    }
-    
-    // Add polylines based on checkbox states
-    if (this.polylineData[index]) {
-      const polylinesToAdd = [];
-      
-      // Add Ground Truth polylines if checkbox is checked
-      if (this.showGroundTruth) {
-        const gtPolylines = this.createPolylines(this.polylineData[index], 'gt');
-        polylinesToAdd.push(...gtPolylines);
-      }
-      
-      // Add Prediction polylines if checkbox is checked
-      if (this.showPredictions) {
-        const predPolylines = this.createPolylines(this.polylineData[index], 'pred');
-        polylinesToAdd.push(...predPolylines);
-      }
-      
-      viewer.polylines = polylinesToAdd;
-      viewer.polylines.forEach(line => viewer.scene.add(line));
-    }
-  }
-
-  createPolylines(data, mode) {
-    const polylines = [];
-    const polylineData = data[mode];
-    
-    if (!polylineData) return polylines;
-    
-    polylineData.forEach(item => {
-      if (item.points && item.points.length > 1) {
-        const points = item.points.map(p => new THREE.Vector3(p[0], p[1], p[2]));
-        const color = this.classColors[item.class] || 0xffffff;
-
-        const curve = new THREE.CatmullRomCurve3(points);
-        const tubeGeometry = new THREE.TubeGeometry(curve, 100, 0.01, 8, false);
-        const tubeMaterial = new THREE.MeshBasicMaterial({ color: color });
-        const tube = new THREE.Mesh(tubeGeometry, tubeMaterial);
-        polylines.push(tube);
-
-        // --- Add end caps ---
-        const startCap = new THREE.CircleGeometry(0.01, 8); // same radius & segments as tube
-        const endCap   = new THREE.CircleGeometry(0.01, 8);
-
-        const startCapMesh = new THREE.Mesh(startCap, tubeMaterial);
-        const endCapMesh   = new THREE.Mesh(endCap, tubeMaterial);
-
-        // Orient caps to face along the tube direction
-        const startDir = new THREE.Vector3().subVectors(points[1], points[0]).normalize();
-        const endDir   = new THREE.Vector3().subVectors(points[points.length - 2], points[points.length - 1]).normalize();
-
-        // position & rotate start cap
-        startCapMesh.position.copy(points[0]);
-        startCapMesh.lookAt(points[0].clone().sub(startDir));
-
-        // position & rotate end cap
-        endCapMesh.position.copy(points[points.length - 1]);
-        endCapMesh.lookAt(points[points.length - 1].clone().sub(endDir));
-
-         polylines.push(startCapMesh);
-         polylines.push(endCapMesh);
-      }
-    });
-    
-    return polylines;
-  }
-
-  initCarouselViewers() {
-    // Ensure we have at least one point cloud
-    if (this.pointClouds.length === 0) {
-      console.error('No point clouds available for carousel');
-      return;
-    }
-
-    console.log(`Initializing carousel with ${this.pointClouds.length} point clouds`);
-
-    // Initialize only the slots we have point clouds for (max 8)
-    const slotsToCreate = Math.min(20, this.pointClouds.length);
-    
-    for (let i = 1; i <= slotsToCreate; i++) {
-      const container = document.getElementById(`pointcloud-viewer-${i}`);
-      if (container) {
-        // Use direct indexing without modulo
-        const pointCloudIndex = i - 1;
-        const geometry = this.pointClouds[pointCloudIndex];
-        
-        console.log(`Slot ${i} using point cloud ${pointCloudIndex}`);
-        
-        if (!geometry) {
-          console.error(`No geometry found for slot ${i}, index ${pointCloudIndex}`);
-          continue;
-        }
-        
-        // Add a small delay to ensure DOM is ready, then initialize
-        setTimeout(() => {
-          this.initViewer(container, geometry, i);
-        }, 50 * i);
-      } else {
-        console.warn(`Container pointcloud-viewer-${i} not found`);
-      }
-    }
-
-    // Hide unused carousel items and their loading states
-    for (let i = slotsToCreate + 1; i <= 20; i++) {
-      const item = document.querySelector(`.item-pointcloud-${i}`);
-      if (item) {
-        item.style.display = 'none';
-      }
-      this.hideLoading(i);
-    }
-
-    // Add display mode toggle button after viewers are initialized
-    this.addDisplayModeToggleButton();
-  }
-
-  addDisplayModeToggleButton() {
-    // Wait for DOM to be ready
-    setTimeout(() => {
-      const carouselContainer = document.getElementById('results-carousel').parentElement;
-      
-      // Create container for toggle buttons
-      const buttonContainer = document.createElement('div');
-      buttonContainer.className = 'field has-addons mb-3';
-      buttonContainer.style.marginBottom = '10px';
-      
-      // Create container for the button group
-      const buttonGroup = document.createElement('div');
-      buttonGroup.className = 'control';
-      
-      // Create Predictions toggle button (first, active by default)
-      const predButton = document.createElement('button');
-      predButton.className = 'button is-info is-selected'; // Active by default
-      predButton.id = 'toggle-predictions-btn';
-      predButton.innerHTML = `
-        <span class="icon">
-          <i class="fas fa-brain"></i>
-        </span>
-        <span>Predictions</span>
-      `;
-      
-      // Create Ground Truth toggle button (second, grayed out by default)
-      const gtButton = document.createElement('button');
-      gtButton.className = 'button is-light'; // Grayed out by default
-      gtButton.id = 'toggle-ground-truth-btn';
-      gtButton.innerHTML = `
-        <span class="icon">
-          <i class="fas fa-check-circle"></i>
-        </span>
-        <span>Ground Truth</span>
-      `;
-      
-      buttonGroup.appendChild(predButton);
-      buttonGroup.appendChild(gtButton);
-      buttonContainer.appendChild(buttonGroup);
-      
-      // Insert before carousel
-      carouselContainer.insertBefore(buttonContainer, carouselContainer.firstChild);
-      
-      // Add event listeners for toggle functionality
-      predButton.addEventListener('click', () => {
-        if (this.showPredictions) {
-          // Turn off predictions - gray out the button
-          this.showPredictions = false;
-          predButton.className = 'button is-light';
-        } else {
-          // Turn on predictions, turn off ground truth
-          this.showPredictions = true;
-          this.showGroundTruth = false;
-          predButton.className = 'button is-info is-selected';
-          gtButton.className = 'button is-light';
-        }
-        this.updateAllViewers();
-      });
-      
-      gtButton.addEventListener('click', () => {
-        if (this.showGroundTruth) {
-          // Turn off ground truth - gray out the button
-          this.showGroundTruth = false;
-          gtButton.className = 'button is-light';
-        } else {
-          // Turn on ground truth, turn off predictions
-          this.showGroundTruth = true;
-          this.showPredictions = false;
-          gtButton.className = 'button is-success is-selected';
-          predButton.className = 'button is-light';
-        }
-        this.updateAllViewers();
-      });
-    }, 500);
-  }
-
-  setupCarouselControls() {
-    // Wait for the page to load and carousel to initialize
-    setTimeout(() => {
-      const carousel = document.getElementById('results-carousel');
-      if (carousel) {
-        // Initialize Bulma carousel with custom settings
-        const carouselInstances = bulmaCarousel.attach('#results-carousel', {
-          slidesToScroll: 1,
-          slidesToShow: 1,
-          infinite: false, // Disable infinite scrolling
-          pagination: false,
-          navigation: true,
-          navigationKeys: true,
-          navigationSwipe: true,
-          effect: 'slide',
-          duration: 600,
-          timing: 'ease'
-        });
-
-        if (carouselInstances.length > 0) {
-          this.carouselInstance = carouselInstances[0];
-          
-          // Add event listeners to track position and manage boundaries
-          this.carouselInstance.on('before:show', (state) => {
-            this.currentIndex = state.next;
-            this.updateNavigationButtons();
-          });
-
-          // Initial button state
-          this.updateNavigationButtons();
-        }
-      }
-    }, 1000);
-  }
-
-  updateNavigationButtons() {
-    const prevButton = document.querySelector('#results-carousel .carousel-nav-left');
-    const nextButton = document.querySelector('#results-carousel .carousel-nav-right');
-    
-    if (prevButton && nextButton) {
-      // Disable previous button at start
-      if (this.currentIndex === 0) {
-        prevButton.style.opacity = '0.3';
-        prevButton.style.pointerEvents = 'none';
-      } else {
-        prevButton.style.opacity = '1';
-        prevButton.style.pointerEvents = 'auto';
-      }
-
-      // Disable next button at end
-      const maxIndex = Math.min(this.pointClouds.length - 1, 7);
-      if (this.currentIndex >= maxIndex) {
-        nextButton.style.opacity = '0.3';
-        nextButton.style.pointerEvents = 'none';
-      } else {
-        nextButton.style.opacity = '1';
-        nextButton.style.pointerEvents = 'auto';
-      }
-    }
-  }
-
-  updateAllViewers() {
-    // Update all viewers when checkbox states change
-    this.viewers.forEach((viewer, index) => {
-      this.updateViewerDisplay(viewer, index);
-    });
-  }
-
-  updateViewerDisplay(viewer, index) {
-    // Remove existing polylines
-    if (viewer.polylines) {
-      viewer.polylines.forEach(line => viewer.scene.remove(line));
-      viewer.polylines = [];
-    }
-    
-    // Point cloud is always visible
-    if (viewer.pointsMesh) {
-      viewer.pointsMesh.visible = true;
-    }
-    
-    // Add polylines based on checkbox states
-    if (this.polylineData[index]) {
-      const polylinesToAdd = [];
-      
-      // Add Ground Truth polylines if checkbox is checked
-      if (this.showGroundTruth) {
-        const gtPolylines = this.createPolylines(this.polylineData[index], 'gt');
-        polylinesToAdd.push(...gtPolylines);
-      }
-      
-      // Add Prediction polylines if checkbox is checked
-      if (this.showPredictions) {
-        const predPolylines = this.createPolylines(this.polylineData[index], 'pred');
-        polylinesToAdd.push(...predPolylines);
-      }
-      
-      viewer.polylines = polylinesToAdd;
-      viewer.polylines.forEach(line => viewer.scene.add(line));
-    }
-  }
-
-  createPolylines(data, mode) {
-    const polylines = [];
-    const polylineData = data[mode];
-    
-    if (!polylineData) return polylines;
-    
-    polylineData.forEach(item => {
-      if (item.points && item.points.length > 1) {
-        const points = item.points.map(p => new THREE.Vector3(p[0], p[1], p[2]));
-        const color = this.classColors[item.class] || 0xffffff;
-
-        const curve = new THREE.CatmullRomCurve3(points);
-        const tubeGeometry = new THREE.TubeGeometry(curve, 100, 0.01, 8, false);
-        const tubeMaterial = new THREE.MeshBasicMaterial({ color: color });
-        const tube = new THREE.Mesh(tubeGeometry, tubeMaterial);
-        polylines.push(tube);
-
-        // --- Add end caps ---
-        const startCap = new THREE.CircleGeometry(0.01, 8); // same radius & segments as tube
-        const endCap   = new THREE.CircleGeometry(0.01, 8);
-
-        const startCapMesh = new THREE.Mesh(startCap, tubeMaterial);
-        const endCapMesh   = new THREE.Mesh(endCap, tubeMaterial);
-
-        // Orient caps to face along the tube direction
-        const startDir = new THREE.Vector3().subVectors(points[1], points[0]).normalize();
-        const endDir   = new THREE.Vector3().subVectors(points[points.length - 2], points[points.length - 1]).normalize();
-
-        // position & rotate start cap
-        startCapMesh.position.copy(points[0]);
-        startCapMesh.lookAt(points[0].clone().sub(startDir));
-
-        // position & rotate end cap
-        endCapMesh.position.copy(points[points.length - 1]);
-        endCapMesh.lookAt(points[points.length - 1].clone().sub(endDir));
-
-         polylines.push(startCapMesh);
-         polylines.push(endCapMesh);
-      }
-    });
-    
-    return polylines;
-  }
-
-  initViewer(container, geometry, index) {
-    try {
-      // Hide loading for this slot
-      this.hideLoading(index);
-      
-      // Clear any existing content (including loading overlay)
-      container.innerHTML = '';
-      
-      // Validate geometry
-      if (!geometry || !geometry.attributes || !geometry.attributes.position) {
-        console.error(`Invalid geometry for viewer ${index}`);
-        return;
-      }
-      
-      // Calculate bounding box for auto-scaling
-      geometry.computeBoundingBox();
-      const boundingBox = geometry.boundingBox;
-      const center = boundingBox.getCenter(new THREE.Vector3());
-      const size = boundingBox.getSize(new THREE.Vector3());
-      const maxDimension = Math.max(size.x, size.y, size.z);
-      
-      // Scene setup
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0xf8f9fa); // Light background
-
-      // Camera setup with auto-scaling
-      const aspect = container.offsetWidth / container.offsetHeight || 1;
-      const camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
-      
-      // Position camera based on point cloud size
-      const distance = maxDimension; // Scale factor for good view
-      camera.position.set(
-        center.x + distance,
-        center.y + distance,
-        center.z + distance
-      );
-      camera.lookAt(center);
-
-      // Renderer setup
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setSize(container.offsetWidth || 400, container.offsetHeight || 400);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      container.appendChild(renderer.domElement);
-
-      // Create point material with gray color
-      const pointSize = Math.max(0.01, maxDimension * 0.01); // Adaptive point size
-      const material = new THREE.PointsMaterial({
-        size: pointSize,
-        color: 0x969696, // Gray color
-        transparent: true,
-        opacity: 0.7,
-        sizeAttenuation: true
-      });
-
-      // Create points mesh
-      const points = new THREE.Points(geometry, material);
-      scene.add(points);
-
-      // Add orbit controls with adaptive settings
-      const controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.1;
-      controls.enableZoom = true;
-      controls.enablePan = true;
-      controls.autoRotate = true;
-      controls.autoRotateSpeed = 5; // Faster auto-rotate
-      controls.target.copy(center); // Set target to center of point cloud
-      
-      // Set zoom limits based on point cloud size
-      controls.minDistance = maxDimension * 0.5;
-      controls.maxDistance = maxDimension * 10;
-
-      // Add better lighting
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
-      scene.add(ambientLight);
-
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-      directionalLight.position.set(
-        center.x + distance,
-        center.y + distance,
-        center.z + distance
-      );
-      directionalLight.castShadow = true;
-      scene.add(directionalLight);
-
-      // Animation loop
-      const animate = () => {
-        requestAnimationFrame(animate);
-        controls.update();
-        renderer.render(scene, camera);
-      };
-
-      animate();
-
-      // Store reference with points mesh and polylines array
-      const viewer = { 
-        scene, 
-        camera, 
-        renderer, 
-        controls, 
-        container, 
-        index: index - 1, // Fix: use zero-based index for polylineData access
-        pointsMesh: points,
-        polylines: []
-      };
-      
-      this.viewers.push(viewer);
-
-      // Initialize display based on current mode
-      this.updateViewerDisplay(viewer, index - 1); // Fix: pass zero-based index
-
-      // Handle resize
-      const handleResize = () => {
-        const width = container.offsetWidth || 400;
-        const height = container.offsetHeight || 400;
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
-        renderer.setSize(width, height);
-      };
-
-      const resizeObserver = new ResizeObserver(handleResize);
-      resizeObserver.observe(container);
-
-      console.log(`Successfully initialized viewer ${index} with auto-scale (max dimension: ${maxDimension.toFixed(2)})`);
-      
-    } catch (error) {
-      console.error(`Error initializing viewer ${index}:`, error);
-      // Show error state instead of loading
-      this.showError(container, index, error.message);
-    }
   }
 
   showError(container, slotNumber, errorMessage) {
