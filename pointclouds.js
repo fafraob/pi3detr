@@ -88,10 +88,17 @@ class PointCloudCarousel {
 
 
     
+    // Add loading states
+    this.isLoading = true;
+    this.loadingElements = new Map();
+    
     this.loadPointClouds();
   }
 
   async loadPointClouds() {
+    // Show loading for all carousel slots first
+    this.showLoadingForAllSlots();
+    
     const loader = new XYZLoader();
     const baseUrl = './pointcloud/pointcloud_';
     
@@ -134,6 +141,45 @@ class PointCloudCarousel {
     // Initialize carousel viewers and setup boundary controls
     this.initCarouselViewers();
     this.setupCarouselControls();
+    
+    // Mark loading as complete
+    this.isLoading = false;
+  }
+
+  showLoadingForAllSlots() {
+    // Show loading for up to 20 slots
+    for (let i = 1; i <= 20; i++) {
+      const container = document.getElementById(`pointcloud-viewer-${i}`);
+      if (container) {
+        this.showLoading(container, i);
+      }
+    }
+  }
+
+  showLoading(container, slotNumber) {
+    // Clear existing content
+    container.innerHTML = '';
+    
+    // Create loading overlay
+    const loadingOverlay = document.createElement('div');
+    loadingOverlay.className = 'loading-overlay';
+    loadingOverlay.innerHTML = `
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Loading Point Cloud ${slotNumber}...</div>
+      </div>
+    `;
+    
+    container.appendChild(loadingOverlay);
+    this.loadingElements.set(slotNumber, loadingOverlay);
+  }
+
+  hideLoading(slotNumber) {
+    const loadingElement = this.loadingElements.get(slotNumber);
+    if (loadingElement && loadingElement.parentNode) {
+      loadingElement.remove();
+      this.loadingElements.delete(slotNumber);
+    }
   }
 
   async loadPolylineData() {
@@ -314,7 +360,7 @@ class PointCloudCarousel {
           continue;
         }
         
-        // Add a small delay to ensure DOM is ready
+        // Add a small delay to ensure DOM is ready, then initialize
         setTimeout(() => {
           this.initViewer(container, geometry, i);
         }, 50 * i);
@@ -323,12 +369,13 @@ class PointCloudCarousel {
       }
     }
 
-    // Hide unused carousel items if we have fewer than 8 point clouds
+    // Hide unused carousel items and their loading states
     for (let i = slotsToCreate + 1; i <= 20; i++) {
       const item = document.querySelector(`.item-pointcloud-${i}`);
       if (item) {
         item.style.display = 'none';
       }
+      this.hideLoading(i);
     }
 
     // Add display mode toggle button after viewers are initialized
@@ -582,7 +629,7 @@ class PointCloudCarousel {
           continue;
         }
         
-        // Add a small delay to ensure DOM is ready
+        // Add a small delay to ensure DOM is ready, then initialize
         setTimeout(() => {
           this.initViewer(container, geometry, i);
         }, 50 * i);
@@ -591,12 +638,282 @@ class PointCloudCarousel {
       }
     }
 
-    // Hide unused carousel items if we have fewer than 8 point clouds
+    // Hide unused carousel items and their loading states
     for (let i = slotsToCreate + 1; i <= 20; i++) {
       const item = document.querySelector(`.item-pointcloud-${i}`);
       if (item) {
         item.style.display = 'none';
       }
+      this.hideLoading(i);
+    }
+
+    // Add display mode toggle button after viewers are initialized
+    this.addDisplayModeToggleButton();
+  }
+
+  addDisplayModeToggleButton() {
+    // Wait for DOM to be ready
+    setTimeout(() => {
+      const carouselContainer = document.getElementById('results-carousel').parentElement;
+      
+      // Create container for toggle buttons
+      const buttonContainer = document.createElement('div');
+      buttonContainer.className = 'field has-addons mb-3';
+      buttonContainer.style.marginBottom = '10px';
+      
+      // Create container for the button group
+      const buttonGroup = document.createElement('div');
+      buttonGroup.className = 'control';
+      
+      // Create Predictions toggle button (first, active by default)
+      const predButton = document.createElement('button');
+      predButton.className = 'button is-info is-selected'; // Active by default
+      predButton.id = 'toggle-predictions-btn';
+      predButton.innerHTML = `
+        <span class="icon">
+          <i class="fas fa-brain"></i>
+        </span>
+        <span>Predictions</span>
+      `;
+      
+      // Create Ground Truth toggle button (second, grayed out by default)
+      const gtButton = document.createElement('button');
+      gtButton.className = 'button is-light'; // Grayed out by default
+      gtButton.id = 'toggle-ground-truth-btn';
+      gtButton.innerHTML = `
+        <span class="icon">
+          <i class="fas fa-check-circle"></i>
+        </span>
+        <span>Ground Truth</span>
+      `;
+      
+      buttonGroup.appendChild(predButton);
+      buttonGroup.appendChild(gtButton);
+      buttonContainer.appendChild(buttonGroup);
+      
+      // Insert before carousel
+      carouselContainer.insertBefore(buttonContainer, carouselContainer.firstChild);
+      
+      // Add event listeners for toggle functionality
+      predButton.addEventListener('click', () => {
+        if (this.showPredictions) {
+          // Turn off predictions - gray out the button
+          this.showPredictions = false;
+          predButton.className = 'button is-light';
+        } else {
+          // Turn on predictions, turn off ground truth
+          this.showPredictions = true;
+          this.showGroundTruth = false;
+          predButton.className = 'button is-info is-selected';
+          gtButton.className = 'button is-light';
+        }
+        this.updateAllViewers();
+      });
+      
+      gtButton.addEventListener('click', () => {
+        if (this.showGroundTruth) {
+          // Turn off ground truth - gray out the button
+          this.showGroundTruth = false;
+          gtButton.className = 'button is-light';
+        } else {
+          // Turn on ground truth, turn off predictions
+          this.showGroundTruth = true;
+          this.showPredictions = false;
+          gtButton.className = 'button is-success is-selected';
+          predButton.className = 'button is-light';
+        }
+        this.updateAllViewers();
+      });
+    }, 500);
+  }
+
+  setupCarouselControls() {
+    // Wait for the page to load and carousel to initialize
+    setTimeout(() => {
+      const carousel = document.getElementById('results-carousel');
+      if (carousel) {
+        // Initialize Bulma carousel with custom settings
+        const carouselInstances = bulmaCarousel.attach('#results-carousel', {
+          slidesToScroll: 1,
+          slidesToShow: 1,
+          infinite: false, // Disable infinite scrolling
+          pagination: false,
+          navigation: true,
+          navigationKeys: true,
+          navigationSwipe: true,
+          effect: 'slide',
+          duration: 600,
+          timing: 'ease'
+        });
+
+        if (carouselInstances.length > 0) {
+          this.carouselInstance = carouselInstances[0];
+          
+          // Add event listeners to track position and manage boundaries
+          this.carouselInstance.on('before:show', (state) => {
+            this.currentIndex = state.next;
+            this.updateNavigationButtons();
+          });
+
+          // Initial button state
+          this.updateNavigationButtons();
+        }
+      }
+    }, 1000);
+  }
+
+  updateNavigationButtons() {
+    const prevButton = document.querySelector('#results-carousel .carousel-nav-left');
+    const nextButton = document.querySelector('#results-carousel .carousel-nav-right');
+    
+    if (prevButton && nextButton) {
+      // Disable previous button at start
+      if (this.currentIndex === 0) {
+        prevButton.style.opacity = '0.3';
+        prevButton.style.pointerEvents = 'none';
+      } else {
+        prevButton.style.opacity = '1';
+        prevButton.style.pointerEvents = 'auto';
+      }
+
+      // Disable next button at end
+      const maxIndex = Math.min(this.pointClouds.length - 1, 7);
+      if (this.currentIndex >= maxIndex) {
+        nextButton.style.opacity = '0.3';
+        nextButton.style.pointerEvents = 'none';
+      } else {
+        nextButton.style.opacity = '1';
+        nextButton.style.pointerEvents = 'auto';
+      }
+    }
+  }
+
+  updateAllViewers() {
+    // Update all viewers when checkbox states change
+    this.viewers.forEach((viewer, index) => {
+      this.updateViewerDisplay(viewer, index);
+    });
+  }
+
+  updateViewerDisplay(viewer, index) {
+    // Remove existing polylines
+    if (viewer.polylines) {
+      viewer.polylines.forEach(line => viewer.scene.remove(line));
+      viewer.polylines = [];
+    }
+    
+    // Point cloud is always visible
+    if (viewer.pointsMesh) {
+      viewer.pointsMesh.visible = true;
+    }
+    
+    // Add polylines based on checkbox states
+    if (this.polylineData[index]) {
+      const polylinesToAdd = [];
+      
+      // Add Ground Truth polylines if checkbox is checked
+      if (this.showGroundTruth) {
+        const gtPolylines = this.createPolylines(this.polylineData[index], 'gt');
+        polylinesToAdd.push(...gtPolylines);
+      }
+      
+      // Add Prediction polylines if checkbox is checked
+      if (this.showPredictions) {
+        const predPolylines = this.createPolylines(this.polylineData[index], 'pred');
+        polylinesToAdd.push(...predPolylines);
+      }
+      
+      viewer.polylines = polylinesToAdd;
+      viewer.polylines.forEach(line => viewer.scene.add(line));
+    }
+  }
+
+  createPolylines(data, mode) {
+    const polylines = [];
+    const polylineData = data[mode];
+    
+    if (!polylineData) return polylines;
+    
+    polylineData.forEach(item => {
+      if (item.points && item.points.length > 1) {
+        const points = item.points.map(p => new THREE.Vector3(p[0], p[1], p[2]));
+        const color = this.classColors[item.class] || 0xffffff;
+
+        const curve = new THREE.CatmullRomCurve3(points);
+        const tubeGeometry = new THREE.TubeGeometry(curve, 100, 0.01, 8, false);
+        const tubeMaterial = new THREE.MeshBasicMaterial({ color: color });
+        const tube = new THREE.Mesh(tubeGeometry, tubeMaterial);
+        polylines.push(tube);
+
+        // --- Add end caps ---
+        const startCap = new THREE.CircleGeometry(0.01, 8); // same radius & segments as tube
+        const endCap   = new THREE.CircleGeometry(0.01, 8);
+
+        const startCapMesh = new THREE.Mesh(startCap, tubeMaterial);
+        const endCapMesh   = new THREE.Mesh(endCap, tubeMaterial);
+
+        // Orient caps to face along the tube direction
+        const startDir = new THREE.Vector3().subVectors(points[1], points[0]).normalize();
+        const endDir   = new THREE.Vector3().subVectors(points[points.length - 2], points[points.length - 1]).normalize();
+
+        // position & rotate start cap
+        startCapMesh.position.copy(points[0]);
+        startCapMesh.lookAt(points[0].clone().sub(startDir));
+
+        // position & rotate end cap
+        endCapMesh.position.copy(points[points.length - 1]);
+        endCapMesh.lookAt(points[points.length - 1].clone().sub(endDir));
+
+         polylines.push(startCapMesh);
+         polylines.push(endCapMesh);
+      }
+    });
+    
+    return polylines;
+  }
+
+  initCarouselViewers() {
+    // Ensure we have at least one point cloud
+    if (this.pointClouds.length === 0) {
+      console.error('No point clouds available for carousel');
+      return;
+    }
+
+    console.log(`Initializing carousel with ${this.pointClouds.length} point clouds`);
+
+    // Initialize only the slots we have point clouds for (max 8)
+    const slotsToCreate = Math.min(20, this.pointClouds.length);
+    
+    for (let i = 1; i <= slotsToCreate; i++) {
+      const container = document.getElementById(`pointcloud-viewer-${i}`);
+      if (container) {
+        // Use direct indexing without modulo
+        const pointCloudIndex = i - 1;
+        const geometry = this.pointClouds[pointCloudIndex];
+        
+        console.log(`Slot ${i} using point cloud ${pointCloudIndex}`);
+        
+        if (!geometry) {
+          console.error(`No geometry found for slot ${i}, index ${pointCloudIndex}`);
+          continue;
+        }
+        
+        // Add a small delay to ensure DOM is ready, then initialize
+        setTimeout(() => {
+          this.initViewer(container, geometry, i);
+        }, 50 * i);
+      } else {
+        console.warn(`Container pointcloud-viewer-${i} not found`);
+      }
+    }
+
+    // Hide unused carousel items and their loading states
+    for (let i = slotsToCreate + 1; i <= 20; i++) {
+      const item = document.querySelector(`.item-pointcloud-${i}`);
+      if (item) {
+        item.style.display = 'none';
+      }
+      this.hideLoading(i);
     }
 
     // Add display mode toggle button after viewers are initialized
@@ -826,7 +1143,10 @@ class PointCloudCarousel {
 
   initViewer(container, geometry, index) {
     try {
-      // Clear any existing content
+      // Hide loading for this slot
+      this.hideLoading(index);
+      
+      // Clear any existing content (including loading overlay)
       container.innerHTML = '';
       
       // Validate geometry
@@ -950,7 +1270,30 @@ class PointCloudCarousel {
       
     } catch (error) {
       console.error(`Error initializing viewer ${index}:`, error);
+      // Show error state instead of loading
+      this.showError(container, index, error.message);
     }
+  }
+
+  showError(container, slotNumber, errorMessage) {
+    // Hide loading first
+    this.hideLoading(slotNumber);
+    
+    // Clear container
+    container.innerHTML = '';
+    
+    // Create error overlay
+    const errorOverlay = document.createElement('div');
+    errorOverlay.className = 'loading-overlay error-overlay';
+    errorOverlay.innerHTML = `
+      <div class="loading-content">
+        <div class="error-icon">⚠️</div>
+        <div class="loading-text">Failed to load Point Cloud ${slotNumber}</div>
+        <div class="error-message">${errorMessage}</div>
+      </div>
+    `;
+    
+    container.appendChild(errorOverlay);
   }
 }
 
@@ -1291,7 +1634,90 @@ function initPointCloudCarousel() {
 
 // Initialize when DOM is loaded and THREE.js is available
 document.addEventListener('DOMContentLoaded', () => {
+  // Add loading styles to the document
+  addLoadingStyles();
+  
   initPointCloud();
   initAdvancedPointCloud();
   initPointCloudCarousel();
 });
+
+// Add CSS styles for loading overlay
+function addLoadingStyles() {
+  const style = document.createElement('style');
+  style.textContent = `
+    .loading-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      z-index: 1000;
+    }
+
+    .loading-content {
+      text-align: center;
+      color: white;
+    }
+
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top: 4px solid white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 15px;
+    }
+
+    .loading-text {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 5px;
+    }
+
+    .error-overlay {
+      background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
+    }
+
+    .error-icon {
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+
+    .error-message {
+      font-size: 12px;
+      opacity: 0.9;
+      max-width: 200px;
+      word-wrap: break-word;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .loading-spinner {
+        width: 30px;
+        height: 30px;
+        border-width: 3px;
+      }
+      
+      .loading-text {
+        font-size: 12px;
+      }
+      
+      .error-message {
+        font-size: 10px;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
