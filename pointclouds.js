@@ -165,7 +165,7 @@ class PointCloudCarousel {
     const loadPromises = [];
 
     // count number of files in folder
-    const maxFiles = 10;
+    const maxFiles = 20;
     
     for (let i = 1; i <= maxFiles; i++) {
       const paddedNumber = i.toString().padStart(2, '0');
@@ -234,49 +234,65 @@ class PointCloudCarousel {
 
   getActiveIndices(currentIndex) {
     const indices = [];
+    const maxItems = Math.min(this.pointClouds.length, 20);
     
     // Calculate range based on visible slides
     const preloadRange = Math.max(1, Math.ceil(this.visibleSlides / 2));
     
     // Add current index
-    indices.push(currentIndex);
+    if (currentIndex >= 0 && currentIndex < maxItems) {
+      indices.push(currentIndex);
+    }
     
     // Add visible range around current index
     for (let i = 1; i <= preloadRange; i++) {
       // Add previous indices
-      if (currentIndex - i >= 0) {
-        indices.push(currentIndex - i);
+      const prevIndex = currentIndex - i;
+      if (prevIndex >= 0 && prevIndex < maxItems) {
+        indices.push(prevIndex);
       }
+      
       // Add next indices
-      if (currentIndex + i < this.pointClouds.length) {
-        indices.push(currentIndex + i);
+      const nextIndex = currentIndex + i;
+      if (nextIndex >= 0 && nextIndex < maxItems) {
+        indices.push(nextIndex);
       }
     }
     
-    // For desktop with multiple visible slides, ensure we load all visible ones
+    // For desktop with multiple visible slides, ensure we load all currently visible ones
     if (this.visibleSlides > 1) {
       for (let i = 0; i < this.visibleSlides; i++) {
         const visibleIndex = currentIndex + i;
-        if (visibleIndex < this.pointClouds.length && !indices.includes(visibleIndex)) {
+        if (visibleIndex >= 0 && visibleIndex < maxItems && !indices.includes(visibleIndex)) {
           indices.push(visibleIndex);
         }
       }
     }
     
-    return indices.sort((a, b) => a - b);
+    // Sort and ensure all indices are within bounds
+    return indices
+      .filter(index => index >= 0 && index < maxItems)
+      .sort((a, b) => a - b);
   }
 
   updateActiveViewers(newIndex) {
     const prevIndex = this.currentIndex;
     
-    // Enforce bounds: 0 <= newIndex <= min(pointClouds.length - 1, 19)
-    const maxIndex = Math.min(this.pointClouds.length - 1, 19);
-    this.currentIndex = Math.max(0, Math.min(newIndex, maxIndex));
+    // Calculate proper bounds
+    const maxItems = Math.min(this.pointClouds.length, 20);
+    const maxIndex = this.visibleSlides === 1 ? maxItems - 1 : Math.max(0, maxItems - this.visibleSlides);
+    
+    // Handle wrapping: if below 0, wrap to end; still enforce upper bound
+    if (newIndex < 0) {
+      this.currentIndex = maxIndex;
+    } else {
+      this.currentIndex = Math.min(newIndex, maxIndex);
+    }
 
     // Calculate which viewers should be active based on viewport
     const activeIndices = this.getActiveIndices(this.currentIndex);
     
-    console.log(`Updating viewers for index ${this.currentIndex} (bounded from ${newIndex}), visible slides: ${this.visibleSlides}, active indices:`, activeIndices);
+    console.log(`Updating viewers for index ${this.currentIndex} (bounded from ${newIndex}), maxIndex: ${maxIndex}, visible slides: ${this.visibleSlides}, active indices:`, activeIndices);
     
     // Dispose viewers that are no longer needed
     this.viewers.forEach((viewer, index) => {
@@ -287,7 +303,7 @@ class PointCloudCarousel {
 
     // Initialize new viewers that are needed
     activeIndices.forEach(index => {
-      if (!this.viewers.has(index) && index < this.pointClouds.length && index <= 19) {
+      if (!this.viewers.has(index) && index < this.pointClouds.length && index < maxItems) {
         // Use requestIdleCallback for non-blocking initialization
         if (window.requestIdleCallback) {
           window.requestIdleCallback(() => {
@@ -305,6 +321,67 @@ class PointCloudCarousel {
     this.updateNavigationButtons();
   }
 
+  updateNavigationButtons() {
+    const prevButton = document.querySelector('#results-carousel .carousel-nav-left');
+    const nextButton = document.querySelector('#results-carousel .carousel-nav-right');
+    
+    if (prevButton && nextButton) {
+      // Always show previous button (allow wrapping to end)
+      prevButton.style.display = 'block';
+      prevButton.style.opacity = '1';
+      prevButton.style.pointerEvents = 'auto';
+      prevButton.disabled = false;
+
+      // Calculate max index - ensure we can see all point clouds
+      const maxItems = Math.min(this.pointClouds.length, 20);
+      const maxIndex = this.visibleSlides === 1 ? maxItems - 1 : Math.max(0, maxItems - this.visibleSlides);
+      
+      // Hide next button only at max index
+      if (this.currentIndex >= maxIndex) {
+        nextButton.style.display = 'none';
+        nextButton.style.opacity = '0';
+        nextButton.style.pointerEvents = 'none';
+        nextButton.disabled = true;
+      } else {
+        nextButton.style.display = 'block';
+        nextButton.style.opacity = '1';
+        nextButton.style.pointerEvents = 'auto';
+        nextButton.disabled = false;
+      }
+      
+      console.log(`Navigation: currentIndex=${this.currentIndex}, maxIndex=${maxIndex}, visibleSlides=${this.visibleSlides}, totalItems=${maxItems}`);
+    }
+  }
+
+  addCustomNavigationHandlers() {
+    // Add additional event handlers to the navigation buttons for stricter control
+    setTimeout(() => {
+      const prevButton = document.querySelector('#results-carousel .carousel-nav-left');
+      const nextButton = document.querySelector('#results-carousel .carousel-nav-right');
+      
+      // Remove the previous button restriction - allow wrapping
+      if (prevButton) {
+        prevButton.addEventListener('click', (e) => {
+          // Allow going below 0 - will wrap to end
+          console.log('Previous button clicked, allowing wrap to end');
+        }, true);
+      }
+      
+      if (nextButton) {
+        nextButton.addEventListener('click', (e) => {
+          const maxItems = Math.min(this.pointClouds.length, 20);
+          const maxIndex = this.visibleSlides === 1 ? maxItems - 1 : Math.max(0, maxItems - this.visibleSlides);
+          if (this.currentIndex >= maxIndex) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            return false;
+          }
+        }, true);
+      }
+    }, 1500);
+  }
+
   setupCarouselControls() {
     setTimeout(() => {
       const carousel = document.getElementById('results-carousel');
@@ -315,7 +392,7 @@ class PointCloudCarousel {
         const carouselInstances = bulmaCarousel.attach('#results-carousel', {
           slidesToScroll: 1,
           slidesToShow: slidesToShow,
-          infinite: false, // Ensure infinite scrolling is disabled
+          infinite: false,
           pagination: false,
           navigation: true,
           navigationKeys: true,
@@ -347,14 +424,23 @@ class PointCloudCarousel {
           
           // Update viewport detection when carousel changes
           this.carouselInstance.on('before:show', (state) => {
-            // Enforce bounds checking
-            const maxIndex = Math.min(this.pointClouds.length - 1, 19); // Max 20 items (0-19)
-            const newIndex = Math.max(0, Math.min(state.next, maxIndex));
+            const maxItems = Math.min(this.pointClouds.length, 20);
+            const maxIndex = this.visibleSlides === 1 ? maxItems - 1 : Math.max(0, maxItems - this.visibleSlides);
             
-            // If the requested index is out of bounds, prevent the change
-            if (state.next < 0 || state.next > maxIndex) {
-              return false; // Prevent the navigation
+            // Handle wrapping: if going below 0, wrap to end
+            let newIndex = state.next;
+            if (state.next < 0) {
+              newIndex = maxIndex; // Wrap to the last valid index
+              console.log(`Wrapping from ${state.next} to ${newIndex}`);
             }
+            
+            // Still prevent going above max
+            if (state.next > maxIndex) {
+              console.log(`Preventing navigation above ${maxIndex} (requested: ${state.next})`);
+              return false;
+            }
+            
+            console.log(`Carousel navigation: ${this.currentIndex} -> ${newIndex} (requested: ${state.next})`);
             
             this.detectViewport();
             this.updateActiveViewers(newIndex);
@@ -365,258 +451,17 @@ class PointCloudCarousel {
           this.carouselInstance.on('refresh', () => {
             this.detectViewport();
             this.updateActiveViewers(this.currentIndex);
+            this.updateNavigationButtons();
           });
 
           // Add custom navigation button event handlers for additional control
           this.addCustomNavigationHandlers();
           
+          // Initial navigation button state
           this.updateNavigationButtons();
         }
       }
     }, 1000);
-  }
-
-  addCustomNavigationHandlers() {
-    // Add additional event handlers to the navigation buttons for stricter control
-    setTimeout(() => {
-      const prevButton = document.querySelector('#results-carousel .carousel-nav-left');
-      const nextButton = document.querySelector('#results-carousel .carousel-nav-right');
-      
-      if (prevButton) {
-        prevButton.addEventListener('click', (e) => {
-          if (this.currentIndex <= 0) {
-            e.preventDefault();
-            e.stopPropagation();
-            return false;
-          }
-        });
-      }
-      
-      if (nextButton) {
-        nextButton.addEventListener('click', (e) => {
-          const maxIndex = Math.min(this.pointClouds.length - this.visibleSlides, 19);
-          if (this.currentIndex >= maxIndex) {
-            e.preventDefault();
-            e.stopPropagation();
-            return false;
-          }
-        });
-      }
-    }, 1500);
-  }
-
-  updateNavigationButtons() {
-    const prevButton = document.querySelector('#results-carousel .carousel-nav-left');
-    const nextButton = document.querySelector('#results-carousel .carousel-nav-right');
-    
-    if (prevButton && nextButton) {
-      // Disable previous button at index 0
-      if (this.currentIndex <= 0) {
-        prevButton.style.opacity = '0.3';
-        prevButton.style.pointerEvents = 'none';
-        prevButton.disabled = true;
-      } else {
-        prevButton.style.opacity = '1';
-        prevButton.style.pointerEvents = 'auto';
-        prevButton.disabled = false;
-      }
-
-      // Calculate max index based on visible slides and total items (max 20)
-      const maxItems = Math.min(this.pointClouds.length, 20);
-      const maxIndex = Math.max(0, maxItems - this.visibleSlides);
-      
-      // Disable next button at max index
-      if (this.currentIndex >= maxIndex) {
-        nextButton.style.opacity = '0.3';
-        nextButton.style.pointerEvents = 'none';
-        nextButton.disabled = true;
-      } else {
-        nextButton.style.opacity = '1';
-        nextButton.style.pointerEvents = 'auto';
-        nextButton.disabled = false;
-      }
-    }
-  }
-
-  // Add method to get memory usage info for debugging
-  getMemoryInfo() {
-    return {
-      activeViewers: this.viewers.size,
-      totalPointClouds: this.pointClouds.length,
-      visibleSlides: this.visibleSlides,
-      isMobile: this.isMobile,
-      currentIndex: this.currentIndex,
-      activeIndices: this.getActiveIndices(this.currentIndex)
-    };
-  }
-
-  showLoadingForAllSlots() {
-    // Show loading for up to 20 slots
-    for (let i = 1; i <= 20; i++) {
-      const container = document.getElementById(`pointcloud-viewer-${i}`);
-      if (container) {
-        this.showLoading(container, i);
-      }
-    }
-  }
-
-  showLoading(container, slotNumber) {
-    // Clear existing content
-    container.innerHTML = '';
-    
-    // Create loading overlay
-    const loadingOverlay = document.createElement('div');
-    loadingOverlay.className = 'loading-overlay';
-    loadingOverlay.innerHTML = `
-      <div class="loading-content">
-        <div class="loading-spinner"></div>
-        <div class="loading-text">Loading Point Cloud ${slotNumber}...</div>
-      </div>
-    `;
-    
-    container.appendChild(loadingOverlay);
-    this.loadingElements.set(slotNumber, loadingOverlay);
-  }
-
-  hideLoading(slotNumber) {
-    const loadingElement = this.loadingElements.get(slotNumber);
-    if (loadingElement && loadingElement.parentNode) {
-      loadingElement.remove();
-      this.loadingElements.delete(slotNumber);
-    }
-  }
-
-  ensureMinimumPointClouds(minCount) {
-    if (this.pointClouds.length === 0) {
-      this.createSamplePointClouds();
-    }
-
-    // If we still don't have enough, duplicate existing ones
-    while (this.pointClouds.length < minCount) {
-      const originalCount = this.pointClouds.length;
-      for (let i = 0; i < originalCount && this.pointClouds.length < minCount; i++) {
-        // Clone the geometry to avoid conflicts
-        const originalGeometry = this.pointClouds[i];
-        const clonedGeometry = originalGeometry.clone();
-        this.pointClouds.push(clonedGeometry);
-      }
-    }
-    
-    console.log(`Ensured ${this.pointClouds.length} point clouds available for carousel`);
-  }
-
-  createSamplePointClouds() {
-    const sampleConfigs = [
-      { type: 'sphere', count: 500 },
-      { type: 'cube', count: 400 },
-      { type: 'spiral', count: 700 },
-      { type: 'torus', count: 800 },
-      { type: 'helix', count: 900 },
-      { type: 'cone', count: 550 },
-      { type: 'wave', count: 800 },
-      { type: 'clusters', count: 600 }
-    ];
-
-    sampleConfigs.forEach(config => {
-      const geometry = this.generateSampleGeometry(config);
-      this.pointClouds.push(geometry);
-    });
-  }
-
-  generateSampleGeometry(config) {
-    const geometry = new THREE.BufferGeometry();
-    const positions = [];
-    const colors = [];
-
-    for (let i = 0; i < config.count; i++) {
-      let x, y, z;
-      
-      switch (config.type) {
-        case 'sphere':
-          const phi = Math.random() * Math.PI * 2;
-          const costheta = Math.random() * 2 - 1;
-          const u = Math.random();
-          const theta = Math.acos(costheta);
-          const r = 2 * Math.cbrt(u);
-          x = r * Math.sin(theta) * Math.cos(phi);
-          y = r * Math.sin(theta) * Math.sin(phi);
-          z = r * Math.cos(theta);
-          break;
-          
-        case 'cube':
-          x = (Math.random() - 0.5) * 4;
-          y = (Math.random() - 0.5) * 4;
-          z = (Math.random() - 0.5) * 4;
-          break;
-          
-        case 'spiral':
-          const t = i / config.count * Math.PI * 4;
-          const radius = t * 0.3;
-          x = radius * Math.cos(t);
-          y = t * 0.5 - 3;
-          z = radius * Math.sin(t);
-          break;
-          
-        case 'torus':
-          const u_tor = Math.random() * Math.PI * 2;
-          const v_tor = Math.random() * Math.PI * 2;
-          const R = 2, r_tor = 0.8;
-          x = (R + r_tor * Math.cos(v_tor)) * Math.cos(u_tor);
-          y = (R + r_tor * Math.cos(v_tor)) * Math.sin(u_tor);
-          z = r_tor * Math.sin(v_tor);
-          break;
-          
-        case 'helix':
-          const t_helix = i / config.count * Math.PI * 6;
-          x = 2 * Math.cos(t_helix);
-          y = t_helix * 0.3 - 3;
-          z = 2 * Math.sin(t_helix);
-          break;
-          
-        case 'cone':
-          const h = Math.random() * 4;
-          const r_cone = (4 - h) * 0.5;
-          const a_cone = Math.random() * Math.PI * 2;
-          x = r_cone * Math.cos(a_cone);
-          z = r_cone * Math.sin(a_cone);
-          y = h - 2;
-          break;
-          
-        case 'wave':
-          x = (Math.random() - 0.5) * 6;
-          z = (Math.random() - 0.5) * 6;
-          y = Math.sin(x) * Math.cos(z);
-          break;
-          
-        case 'clusters':
-          const cluster = Math.floor(Math.random() * 3);
-          const offsets = [[0, 0, 0], [3, 0, 0], [-1.5, 2.6, 0]];
-          x = (Math.random() - 0.5) * 1.5 + offsets[cluster][0];
-          y = (Math.random() - 0.5) * 1.5 + offsets[cluster][1];
-          z = (Math.random() - 0.5) * 1.5 + offsets[cluster][2];
-          break;
-          
-        default:
-          x = (Math.random() - 0.5) * 4;
-          y = (Math.random() - 0.5) * 4;
-          z = (Math.random() - 0.5) * 4;
-      }
-
-      positions.push(x, y, z);
-
-      // Generate vibrant colors based on position
-      const hue = (x + y + z + 10) / 20;
-      const color = new THREE.Color().setHSL((hue % 1), 0.8, 0.6);
-      colors.push(color.r, color.g, color.b);
-    }
-
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    
-    // Ensure bounding box is computed
-    geometry.computeBoundingBox();
-    
-    return geometry;
   }
 
   async loadSinglePointCloud(loader, url, index) {
@@ -889,7 +734,7 @@ class PointCloudCarousel {
       camera.lookAt(center);
 
       const renderer = new THREE.WebGLRenderer({ 
-        antialias: false,
+        antialias: true,
         alpha: true,
         powerPreference: "high-performance"
       });
@@ -1048,6 +893,186 @@ class PointCloudCarousel {
     });
     
     return polylines;
+  }
+
+  showLoadingForAllSlots() {
+    // Show loading for up to 20 slots
+    for (let i = 1; i <= 20; i++) {
+      const container = document.getElementById(`pointcloud-viewer-${i}`);
+      if (container) {
+        this.showLoading(container, i);
+      }
+    }
+  }
+
+  showLoading(container, slotNumber) {
+    // Clear existing content
+    container.innerHTML = '';
+    
+    // Create loading overlay
+    const loadingOverlay = document.createElement('div');
+    loadingOverlay.className = 'loading-overlay';
+    loadingOverlay.innerHTML = `
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Loading Point Cloud ${slotNumber}...</div>
+      </div>
+    `;
+    
+    container.appendChild(loadingOverlay);
+    this.loadingElements.set(slotNumber, loadingOverlay);
+  }
+
+  hideLoading(slotNumber) {
+    const loadingElement = this.loadingElements.get(slotNumber);
+    if (loadingElement && loadingElement.parentNode) {
+      loadingElement.remove();
+      this.loadingElements.delete(slotNumber);
+    }
+  }
+
+  ensureMinimumPointClouds(minCount) {
+    if (this.pointClouds.length === 0) {
+      this.createSamplePointClouds();
+    }
+
+    // If we still don't have enough, duplicate existing ones
+    while (this.pointClouds.length < minCount) {
+      const originalCount = this.pointClouds.length;
+      for (let i = 0; i < originalCount && this.pointClouds.length < minCount; i++) {
+        // Clone the geometry to avoid conflicts
+        const originalGeometry = this.pointClouds[i];
+        const clonedGeometry = originalGeometry.clone();
+        this.pointClouds.push(clonedGeometry);
+      }
+    }
+    
+    console.log(`Ensured ${this.pointClouds.length} point clouds available for carousel`);
+  }
+
+  createSamplePointClouds() {
+    const sampleConfigs = [
+      { type: 'sphere', count: 500 },
+      { type: 'cube', count: 400 },
+      { type: 'spiral', count: 700 },
+      { type: 'torus', count: 800 },
+      { type: 'helix', count: 900 },
+      { type: 'cone', count: 550 },
+      { type: 'wave', count: 800 },
+      { type: 'clusters', count: 600 }
+    ];
+
+    sampleConfigs.forEach(config => {
+      const geometry = this.generateSampleGeometry(config);
+      this.pointClouds.push(geometry);
+    });
+  }
+
+  generateSampleGeometry(config) {
+    const geometry = new THREE.BufferGeometry();
+    const positions = [];
+    const colors = [];
+
+    for (let i = 0; i < config.count; i++) {
+      let x, y, z;
+      
+      switch (config.type) {
+        case 'sphere':
+          const phi = Math.random() * Math.PI * 2;
+          const costheta = Math.random() * 2 - 1;
+          const u = Math.random();
+          const theta = Math.acos(costheta);
+          const r = 2 * Math.cbrt(u);
+          x = r * Math.sin(theta) * Math.cos(phi);
+          y = r * Math.sin(theta) * Math.sin(phi);
+          z = r * Math.cos(theta);
+          break;
+          
+        case 'cube':
+          x = (Math.random() - 0.5) * 4;
+          y = (Math.random() - 0.5) * 4;
+          z = (Math.random() - 0.5) * 4;
+          break;
+          
+        case 'spiral':
+          const t = i / config.count * Math.PI * 4;
+          const radius = t * 0.3;
+          x = radius * Math.cos(t);
+          y = t * 0.5 - 3;
+          z = radius * Math.sin(t);
+          break;
+          
+        case 'torus':
+          const u_tor = Math.random() * Math.PI * 2;
+          const v_tor = Math.random() * Math.PI * 2;
+          const R = 2, r_tor = 0.8;
+          x = (R + r_tor * Math.cos(v_tor)) * Math.cos(u_tor);
+          y = (R + r_tor * Math.cos(v_tor)) * Math.sin(u_tor);
+          z = r_tor * Math.sin(v_tor);
+          break;
+          
+        case 'helix':
+          const t_helix = i / config.count * Math.PI * 6;
+          x = 2 * Math.cos(t_helix);
+          y = t_helix * 0.3 - 3;
+          z = 2 * Math.sin(t_helix);
+          break;
+          
+        case 'cone':
+          const h = Math.random() * 4;
+          const r_cone = (4 - h) * 0.5;
+          const a_cone = Math.random() * Math.PI * 2;
+          x = r_cone * Math.cos(a_cone);
+          z = r_cone * Math.sin(a_cone);
+          y = h - 2;
+          break;
+          
+        case 'wave':
+          x = (Math.random() - 0.5) * 6;
+          z = (Math.random() - 0.5) * 6;
+          y = Math.sin(x) * Math.cos(z);
+          break;
+          
+        case 'clusters':
+          const cluster = Math.floor(Math.random() * 3);
+          const offsets = [[0, 0, 0], [3, 0, 0], [-1.5, 2.6, 0]];
+          x = (Math.random() - 0.5) * 1.5 + offsets[cluster][0];
+          y = (Math.random() - 0.5) * 1.5 + offsets[cluster][1];
+          z = (Math.random() - 0.5) * 1.5 + offsets[cluster][2];
+          break;
+          
+        default:
+          x = (Math.random() - 0.5) * 4;
+          y = (Math.random() - 0.5) * 4;
+          z = (Math.random() - 0.5) * 4;
+      }
+
+      positions.push(x, y, z);
+
+      // Generate vibrant colors based on position
+      const hue = (x + y + z + 10) / 20;
+      const color = new THREE.Color().setHSL((hue % 1), 0.8, 0.6);
+      colors.push(color.r, color.g, color.b);
+    }
+
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    
+    // Ensure bounding box is computed
+    geometry.computeBoundingBox();
+    
+    return geometry;
+  }
+
+  getMemoryInfo() {
+    return {
+      activeViewers: this.viewers.size,
+      totalPointClouds: this.pointClouds.length,
+      visibleSlides: this.visibleSlides,
+      isMobile: this.isMobile,
+      currentIndex: this.currentIndex,
+      activeIndices: this.getActiveIndices(this.currentIndex)
+    };
   }
 
   showError(container, slotNumber, errorMessage) {
