@@ -104,7 +104,9 @@ class PointCloudCarousel {
     
     // Create array of promises for parallel loading
     const loadPromises = [];
-    const maxFiles = 50;
+
+    // count number of files in folder
+    const maxFiles = 10; // Limit to 20 files for performance
     
     for (let i = 1; i <= maxFiles; i++) {
       const paddedNumber = i.toString().padStart(2, '0');
