@@ -5,7 +5,7 @@
 [![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 
-# [WIP] PI3DETR: Parametric Instance Detection of 3D Point Cloud Edges with a Geometry-Aware 3DETR
+# 🥧 PI3DETR: Parametric Instance Detection of 3D Point Cloud Edges with a Geometry-Aware 3DETR
 
 
 [contributors-shield]: https://img.shields.io/github/contributors/fafraob/pi3detr.svg?style=for-the-badge&height=40
