@@ -1,27 +1,27 @@
 [![Contributors][contributors-shield]][contributors-url]
-[![Contributor1](https://github.com/fafraob.png?size=40)](https://github.com/fafraob)
-[![Contributor2](https://github.com/MichaelSchwingshackl.png?size=40)](https://github.com/MichaelSchwingshackl)&nbsp;&nbsp;&nbsp;
+[![Contributor1](https://github.com/fafraob.png?size=28)](https://github.com/fafraob)
+[![Contributor2](https://github.com/MichaelSchwingshackl.png?size=28)](https://github.com/MichaelSchwingshackl)&nbsp;&nbsp;&nbsp;
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 
-
-
-
 # [WIP] PI3DETR: Parametric Instance Detection of 3D Point Cloud Edges with a Geometry-Aware 3DETR
 
 
-
-[contributors-shield]: https://img.shields.io/github/contributors/fafraob/pi3detr.svg?style=for-the-badge
+[contributors-shield]: https://img.shields.io/github/contributors/fafraob/pi3detr.svg?style=for-the-badge&height=40
 [contributors-url]: https://github.com/fafraob/pi3detr/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/fafraob/pi3detr.svg?style=for-the-badge
+[forks-shield]: https://img.shields.io/github/forks/fafraob/pi3detr.svg?style=for-the-badge&height=40
 [forks-url]: https://github.com/fafraob/pi3detr/network/members
-[stars-shield]: https://img.shields.io/github/stars/fafraob/pi3detr.svg?style=for-the-badge
+[stars-shield]: https://img.shields.io/github/stars/fafraob/pi3detr.svg?style=for-the-badge&height=40
 [stars-url]: https://github.com/fafraob/pi3detr/stargazers
-[issues-shield]: https://img.shields.io/github/issues/fafraob/pi3detr.svg?style=for-the-badge
+[issues-shield]: https://img.shields.io/github/issues/fafraob/pi3detr.svg?style=for-the-badge&height=40
 [issues-url]: https://github.com/fafraob/pi3detr/issues
-[license-shield]: https://img.shields.io/github/license/fafraob/pi3detr.svg?style=for-the-badge
-[license-url]: https://github.com/fafraob/pi3detr/blob/master/LICENSE
+[license-shield]: https://img.shields.io/github/license/fafraob/pi3detr.svg?style=for-the-badge&height=40
+[license-url]: https://github.com/fafraob/pi3detr/blob/master/LICENSE.txt
+
+
+
+
 
 
 
