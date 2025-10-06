@@ -19,14 +19,14 @@
 [issues-shield]: https://img.shields.io/github/issues/fafraob/pi3detr.svg?style=for-the-badge
 [issues-url]: https://github.com/fafraob/pi3detr/issues
 [license-shield]: https://img.shields.io/github/license/fafraob/pi3detr.svg?style=for-the-badge
-[license-url]: https://github.com/fafraob/pi3detr/blob/master/LICENSE.txt
+[license-url]: https://github.com/fafraob/pi3detr/blob/master/LICENSE
 
 
 
 
 We present **PI3DETR**, an end-to-end framework that directly predicts 3D parametric curve instances from raw point clouds, avoiding the intermediate representations and multi-stage processing common in prior work.
 
-[[`website [WIP]`](https://fafraob.github.io/pi3detr/)] [[`arXiv`](https://arxiv.org/pdf/2509.03262)] [[`bibtex`](#citation)]
+[[`website`](https://fafraob.github.io/pi3detr/)] [[`arXiv`](https://arxiv.org/pdf/2509.03262)] [[`bibtex`](#citation)]
 
 ![](assets/pi3detr_logo_anim.gif)
 Extending [3DETR](https://github.com/facebookresearch/3detr.git), our model introduces a **geometry-aware matching strategy** and specialized loss functions that enable unified detection of differently parameterized curve types, including cubic Bézier curves, line segments, circles, and arcs, in a single forward pass. Optional post-processing steps further refine predictions without adding complexity. This streamlined design improves robustness to noise and varying sampling densities, addressing critical challenges in real world LiDAR and 3D sensing scenarios. PI3DETR sets a new state-of-the-art on the ABC dataset and generalizes effectively to real sensor data, offering a simple yet powerful solution for 3D edge and curve estimation.
