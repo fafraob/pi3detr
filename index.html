@@ -1,6 +1,17 @@
 <!DOCTYPE html>
 <html>
 <head>
+  
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-HZ5C3D5CD5"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-HZ5C3D5CD5');
+</script>
+
   <meta charset="utf-8">
   <meta name="description"
         content="PI3DETR: Parametric Instance Detection of 3D Point Cloud Edges with a Geometry-Aware 3DETR.">
@@ -9,25 +20,7 @@
   <title>PI3DETR: Parametric Instance Detection of 3D Point Cloud Edges</title>
 
 <!-- Google Tag Manager -->
-<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-})(window,document,'script','dataLayer','GTM-5NZFBFHX');</script>
-<!-- End Google Tag Manager -->
 
-  <!-- Global site tag (gtag.js) - Google Analytics -->
-  <script>
-    window.dataLayer = window.dataLayer || [];
-
-    function gtag() {
-      dataLayer.push(arguments);
-    }
-
-    gtag('js', new Date());
-
-    gtag('config', 'G-PYVRSFMDRL');
-  </script>
 
   <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
         rel="stylesheet">
@@ -319,6 +312,8 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
             As a byproduct of our method based on a non-parametric query design, where encoded points are used as transformer decoder queries, 
             we can construct an interactive edge generator driven by point-based prompting. The example below demonstrates this functionality 
             on a sample from our unseen test dataset.
+
+            This can be used to interactively measure distances or angles between edges, or to create custom edge combinations for CAD applications.
           </p>
         </div>
         <div class="content">
