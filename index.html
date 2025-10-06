@@ -63,7 +63,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   </div>
   <div class="navbar-menu">
     <div class="navbar-start" style="flex-grow: 1; justify-content: center;">
-      <a class="navbar-item" href="https://keunhong.com">
+      <a class="navbar-item" href="https://github.com/fafraob/pi3detr">
       <span class="icon">
           <i class="fas fa-home"></i>
       </span>
@@ -182,7 +182,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <div class="hero-body has-text-centered">
        <img src="./static/images/architecture.jpg" alt="Architecture Preview" style="max-width:100%; height:auto;" />
       <h2 class="subtitle">
-        <span class="dnerf">PI3DETR can directly predict 3D parametric curve instances from raw point clouds. No intermediate representations are required.</span>
+        <span class="dnerf">PI3DETR can directly predict 3D parametric curve instances from raw point clouds. No intermediate representations or post-processing steps are required.</span>
       </h2>
     </div>
   </div>
@@ -209,16 +209,24 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <!--/ Abstract. -->
 
    <div class="columns is-centered has-text-centered">
-      <div class="column is-full">
-        <h2 class="title is-3">3D Parametric Edge Predictions</h2>
-        <div class="content has-text-justified">
-          <p>
-            Explore our 3D parametric edge predictions from our experiments below. 
-          </p>
-        </div>
-        <div id="pointcloud-grid-container"></div>
-      </div>
+  <div class="column is-full">
+    <h2 class="title is-3">3D Parametric Edge Predictions</h2>
+    <div class="content has-text-justified">
+      <p>
+        Explore our 3D parametric edge predictions on an unseen test set curated from the 
+        <a href="https://deep-geometry.github.io/abc-dataset/" target="_blank" rel="noopener noreferrer">
+          ABC dataset
+        </a>. 
+        The examples below showcase our model’s ability to infer precise geometric primitives directly from raw point clouds. 
+        The evaluation was conducted on our 
+        <a href="https://zenodo.org/records/16918246" target="_blank" rel="noopener noreferrer">
+          released test dataset
+        </a>.
+      </p>
     </div>
+    <div id="pointcloud-grid-container"></div>
+  </div>
+</div>
 
 
 
@@ -226,7 +234,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   <div class="hero-body">
     <div class="content has-text-justified">
           <p>
-           At first glance, ground truth and prediction might seem identical—zoom in and rotate the point cloud to appreciate the model’s precision 😉
+           At first glance, ground truth and prediction might seem identical. Zoom in and rotate the point cloud to appreciate the model’s precision 😉
           </p>
         </div>
     <div class="container">
@@ -302,73 +310,39 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 <section class="section">
   <div class="container is-max-desktop">
 
-    <div class="is-centered">
-
-      <!-- Visual Effects. -->
-
-        <div class="content">
-          <h2 class="title is-3">Interactive Edge Prompting:</h2>
+    <!-- Replaced previous <div class="is-centered"> ... block -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-full">
+        <h2 class="title is-3">Interactive Edge Prompting</h2>
+        <div class="content has-text-justified">
           <p>
-            Using <i>nerfies</i> you can create fun visual effects. This Dolly zoom effect
-            would be impossible without nerfies since it would require going through a wall.
+            As a byproduct of our method based on a non-parametric query design, where encoded points are used as transformer decoder queries, 
+            we can construct an interactive edge generator driven by point-based prompting. The example below demonstrates this functionality 
+            on a sample from our unseen test dataset.
           </p>
-          <video id="dollyzoom" autoplay muted loop playsinline height="100%">
-            <source src="./static/videos/synth_click.mov"
-                    type="video/mp4">
+        </div>
+        <div class="content">
+          <video id="video2" autoplay muted loop playsinline height="100%">
+            <source src="./static/videos/synth_click.mov" type="video/mp4">
           </video>
         </div>
 
-      <!--/ Visual Effects. -->
-
-      <!-- Matting. -->
-
-
-        <div class="columns is-centered">
-          <div class="column content">
-            <p>
-              As a byproduct of our method, we can also solve the matting problem by ignoring
-              samples that fall outside of a bounding box during rendering.
-            </p>
-            <video id="matting-video" autoplay muted loop playsinline height="100%">
-              <source src="./static/videos/real_scan_click.mov"
-                      type="video/mp4">
-            </video>
-          </div>
-
-        </div>
-      </div>
-
-    <!--/ Matting. -->
-
-  
-
-
-    <!-- Concurrent Work. -->
-    <!-- <div class="columns is-centered">
-      <div class="column is-full-width">
-        <h2 class="title is-3">Related Links</h2>
-
+        <h3 class="title is-4" style="margin-top:2rem;">Real-World 3D Scan</h3>
         <div class="content has-text-justified">
           <p>
-            There's a lot of excellent work that was introduced around the same time as ours.
-          </p>
-          <p>
-            <a href="https://arxiv.org/abs/2104.09125">Progressive Encoding for Neural Optimization</a> introduces an idea similar to our windowed position encoding for coarse-to-fine optimization.
-          </p>
-          <p>
-            <a href="https://www.albertpumarola.com/research/D-NeRF/index.html">D-NeRF</a> and <a href="https://gvv.mpi-inf.mpg.de/projects/nonrigid_nerf/">NR-NeRF</a>
-            both use deformation fields to model non-rigid scenes.
-          </p>
-          <p>
-            Some works model videos with a NeRF by directly modulating the density, such as <a href="https://video-nerf.github.io/">Video-NeRF</a>, <a href="https://www.cs.cornell.edu/~zl548/NSFF/">NSFF</a>, and <a href="https://neural-3d-video.github.io/">DyNeRF</a>
-          </p>
-          <p>
-            There are probably many more by the time you are reading this. Check out <a href="https://dellaert.github.io/NeRF/">Frank Dellart's survey on recent NeRF papers</a>, and <a href="https://github.com/yenchenlin/awesome-NeRF">Yen-Chen Lin's curated list of NeRF papers</a>.
+            Beyond synthetic point clouds sampled from ABC meshes, our model also operates effectively on real-world 3D scans. 
+            The examples below were obtained from 3D-printed models that were scanned using a 7-DOF robotic system equipped with a 
+            structured-light sensor. The interactive visualization highlights this capability, and additional real-world results 
+            are presented in the paper.
           </p>
         </div>
+        <div class="content">
+          <video id="video1" autoplay muted loop playsinline height="100%">
+            <source src="./static/videos/real_scan_click.mov" type="video/mp4">
+          </video>
+        </div>
       </div>
-    </div> -->
-    <!--/ Concurrent Work. -->
+    </div>
 
   </div>
 </section>
@@ -407,6 +381,9 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           </p>
         </div>
       </div>
+    </div>
+  </div>
+</footer>
     </div>
   </div>
 </footer>
