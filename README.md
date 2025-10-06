@@ -1,8 +1,6 @@
-[![Contributor1](https://github.com/fafraob.png?size=40)](https://github.com/fafraob)
-[![Contributor2](https://github.com/MichaelSchwingshackl.png?size=40)](https://github.com/MichaelSchwingshackl)
-
-
 [![Contributors][contributors-shield]][contributors-url]
+[![Contributor1](https://github.com/fafraob.png?size=40)](https://github.com/fafraob)
+[![Contributor2](https://github.com/MichaelSchwingshackl.png?size=40)](https://github.com/MichaelSchwingshackl)&nbsp;&nbsp;&nbsp;
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
