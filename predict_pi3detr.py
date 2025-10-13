@@ -15,7 +15,7 @@ import torch_geometric
 import trimesh
 from torch_geometric.data.data import Data
 from torch_geometric.loader import DataLoader
-from torch_geometric.nn.pool import fps
+import fpsample
 
 from pi3detr import (
     build_model,
@@ -141,7 +141,7 @@ def process_data(
     if reduction > 0 and data.pos.size(0) > reduction:
         indices = torch.randperm(data.pos.size(0))[:reduction]
         data.pos = data.pos[indices]
-        
+
     # Apply sampling strategy
     if sample_mode == "random":
         indices = torch.randperm(data.pos.size(0))[:sample]
@@ -149,7 +149,7 @@ def process_data(
 
     elif sample_mode == "fps":
         if data.pos.size(0) > sample:
-            idx = fps(data.pos, ratio=sample / data.pos.size(0))
+            idx = fpsample.bucket_fps_kdline_sampling(data.pos, sample, h=6)
             data.pos = data.pos[idx]
 
     elif sample_mode == "uniform":
@@ -300,6 +300,7 @@ def main():
         output_data = predict(model, processed_data)
 
         visualize(output_data)
+
 
 if __name__ == "__main__":
     main()
