@@ -165,7 +165,7 @@ class PointCloudCarousel {
     const loadPromises = [];
 
     // count number of files in folder
-    const maxFiles = 20;
+    const maxFiles = 40;
     
     for (let i = 1; i <= maxFiles; i++) {
       const paddedNumber = i.toString().padStart(2, '0');
@@ -216,9 +216,9 @@ class PointCloudCarousel {
   }
 
   hideUnusedSlots() {
-    const totalSlots = Math.min(this.pointClouds.length, 20);
+    const totalSlots = Math.min(this.pointClouds.length, 40);
     
-    for (let i = totalSlots + 1; i <= 20; i++) {
+    for (let i = totalSlots + 1; i <= 40; i++) {
       const item = document.querySelector(`.item-pointcloud-${i}`);
       if (item) {
         item.style.display = 'none';
@@ -234,7 +234,7 @@ class PointCloudCarousel {
 
   getActiveIndices(currentIndex) {
     const indices = [];
-    const maxItems = Math.min(this.pointClouds.length, 20);
+    const maxItems = Math.min(this.pointClouds.length, 40);
     
     // Calculate range based on visible slides
     const preloadRange = Math.max(1, Math.ceil(this.visibleSlides / 2));
@@ -279,7 +279,7 @@ class PointCloudCarousel {
     const prevIndex = this.currentIndex;
     
     // Calculate proper bounds
-    const maxItems = Math.min(this.pointClouds.length, 20);
+    const maxItems = Math.min(this.pointClouds.length, 40);
     const maxIndex = this.visibleSlides === 1 ? maxItems - 1 : Math.max(0, maxItems - this.visibleSlides);
     
     // Handle wrapping: if below 0, wrap to end; still enforce upper bound
@@ -333,7 +333,7 @@ class PointCloudCarousel {
       prevButton.disabled = false;
 
       // Calculate max index - ensure we can see all point clouds
-      const maxItems = Math.min(this.pointClouds.length, 20);
+      const maxItems = Math.min(this.pointClouds.length, 40);
       const maxIndex = this.visibleSlides === 1 ? maxItems - 1 : Math.max(0, maxItems - this.visibleSlides);
       
       // Hide next button only at max index
@@ -369,7 +369,7 @@ class PointCloudCarousel {
       
       if (nextButton) {
         nextButton.addEventListener('click', (e) => {
-          const maxItems = Math.min(this.pointClouds.length, 20);
+          const maxItems = Math.min(this.pointClouds.length, 40);
           const maxIndex = this.visibleSlides === 1 ? maxItems - 1 : Math.max(0, maxItems - this.visibleSlides);
           if (this.currentIndex >= maxIndex) {
             e.preventDefault();
@@ -424,7 +424,7 @@ class PointCloudCarousel {
           
           // Update viewport detection when carousel changes
           this.carouselInstance.on('before:show', (state) => {
-            const maxItems = Math.min(this.pointClouds.length, 20);
+            const maxItems = Math.min(this.pointClouds.length, 40);
             const maxIndex = this.visibleSlides === 1 ? maxItems - 1 : Math.max(0, maxItems - this.visibleSlides);
             
             // Handle wrapping: if going below 0, wrap to end
@@ -897,7 +897,7 @@ class PointCloudCarousel {
 
   showLoadingForAllSlots() {
     // Show loading for up to 20 slots
-    for (let i = 1; i <= 20; i++) {
+    for (let i = 1; i <= 40; i++) {
       const container = document.getElementById(`pointcloud-viewer-${i}`);
       if (container) {
         this.showLoading(container, i);
