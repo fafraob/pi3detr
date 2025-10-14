@@ -43,9 +43,9 @@ def parse_args() -> argparse.Namespace:
 def create_log_dir_name(model_config: ModelConfig) -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     name = timestamp.replace("_", "")
-    name += f"{model_config.preencoder_type}_"
+    name += f"_{model_config.preencoder_type}_"
     name += f"e{model_config.num_encoder_layers}_d{model_config.num_decoder_layers}_"
-    name += f"ed{model_config.encoder_dim}dd{model_config.decoder_dim}"
+    name += f"ed{model_config.encoder_dim}_dd{model_config.decoder_dim}"
 
     return name
 
