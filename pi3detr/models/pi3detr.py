@@ -169,12 +169,16 @@ class PI3DETR(pl.LightningModule):
         pred_line_params = output_line_params[-1].reshape(
             data.batch_size, self.num_preds, 2, 3
         )
-        pred_line_params[:, :, 0, :] += query_xyz[:, :, 0, :]
+        pred_line_params[:, :, 0, :] = (
+            pred_line_params[:, :, 0, :] + query_xyz[:, :, 0, :]
+        )
 
         pred_circle_params = output_circle_params[-1].reshape(
             data.batch_size, self.num_preds, 2, 3
         )
-        pred_circle_params[:, :, 0, :] += query_xyz[:, :, 0, :]
+        pred_circle_params[:, :, 0, :] = (
+            pred_circle_params[:, :, 0, :] + query_xyz[:, :, 0, :]
+        )
 
         pred_arc_params = (
             output_arc_params[-1].reshape(data.batch_size, self.num_preds, 3, 3)

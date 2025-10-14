@@ -3,7 +3,7 @@ from typing import Optional
 from torch_geometric.nn import (
     MLP,
 )
-from .pointnetpp import SAModule2
+from .pointnetpp import SAModule
 
 
 @dataclass
@@ -56,7 +56,7 @@ class ModelConfig:
         preencoder_type = self.preencoder_type
         preencoder = None
         if preencoder_type == "samodule":
-            preencoder = SAModule2(
+            preencoder = SAModule(
                 MLP([self.num_features + 3, 64, 128, self.encoder_dim]),
                 num_out_points=self.num_transformer_points,
             )

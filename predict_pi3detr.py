@@ -14,7 +14,6 @@ import torch
 import torch_geometric
 import trimesh
 from torch_geometric.data.data import Data
-from torch_geometric.loader import DataLoader
 import fpsample
 
 from pi3detr import (
@@ -70,6 +69,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Reduce points by random sampling before sample_mode sampling (default: 0, no reduction). Usable if you are using fps sampling to reduce runtime.",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda",
+        help="Device to run the model on (default: cuda)",
     )
 
     return parser.parse_args()
@@ -237,10 +242,10 @@ def visualize(data: Data) -> None:
     ps.show()
 
 
-def predict(model: pl.LightningModule, data: Data) -> Data:
+def predict(model: pl.LightningModule, data: Data, device: str) -> Data:
     """Run prediction on the input data."""
     # Run inference
-    data = data.to("cuda")
+    data = data.to(device)
     output = model.predict_step(
         data,
         reverse_norm=True,
@@ -271,7 +276,8 @@ def main():
     model = build_model(model_config)
     load_weights(model, parsed_args.checkpoint)
     model.eval()
-    model.to("cuda")
+    device = parsed_args.device
+    model = model.to(device)
 
     # check if input is a file or directory
     if os.path.isdir(parsed_args.path):
@@ -285,8 +291,7 @@ def main():
                 sample_mode=parsed_args.sample_mode,
                 reduction=parsed_args.reduction,
             )
-            output_data = predict(model, processed_data)
-
+            output_data = predict(model, processed_data, device)
             visualize(output_data)
     else:
         # Load single file
@@ -297,8 +302,7 @@ def main():
             sample_mode=parsed_args.sample_mode,
             reduction=parsed_args.reduction,
         )
-        output_data = predict(model, processed_data)
-
+        output_data = predict(model, processed_data, device)
         visualize(output_data)
 
 
