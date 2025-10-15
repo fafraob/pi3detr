@@ -407,14 +407,32 @@ class PI3DETR(pl.LightningModule):
         self.chamfer_map.update(preds, batch)
 
     def set_num_preds(self, num_preds: int) -> None:
+        if num_preds == self.num_preds:
+            return
         self.num_preds = num_preds
-        self.query_engine = build_query_engine(
+        old_state = (
+            self.query_engine.state_dict()
+            if isinstance(self.query_engine, nn.Module)
+            else None
+        )
+        new_engine = build_query_engine(
             self.query_type,
             self.positional_embedding,
             self.dec_dim,
             self.max_points_in_param,
             self.num_preds,
         )
+        if old_state is not None:
+            new_state = new_engine.state_dict()
+            for k, v in old_state.items():
+                assert k in new_state, f"Missing parameter in new query engine: {k}"
+                nv = new_state[k]
+                assert (
+                    v.shape == nv.shape
+                ), f"Shape mismatch for {k}: {v.shape} != {nv.shape}"
+                nv.copy_(v.to(nv.device))
+            new_engine.load_state_dict(new_state, strict=True)
+        self.query_engine = new_engine.to(self.device)
 
     @torch.no_grad()
     def decode_predictions(
