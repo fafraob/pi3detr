@@ -70,8 +70,9 @@ class PI3DETR(pl.LightningModule):
         self.pos_embed_proj = MLP(
             [self.dec_dim, self.dec_dim, self.dec_dim], act="relu", norm="layer_norm"
         )
+        self.query_type = config.query_type
         self.query_engine = build_query_engine(
-            config.query_type,
+            self.query_type,
             self.positional_embedding,
             self.dec_dim,
             self.max_points_in_param,
@@ -404,6 +405,16 @@ class PI3DETR(pl.LightningModule):
             self.seg_recall.update(output.segmentation, output.y_seg)
         # chamfer metrics
         self.chamfer_map.update(preds, batch)
+
+    def set_num_preds(self, num_preds: int) -> None:
+        self.num_preds = num_preds
+        self.query_engine = build_query_engine(
+            self.query_type,
+            self.positional_embedding,
+            self.dec_dim,
+            self.max_points_in_param,
+            self.num_preds,
+        )
 
     @torch.no_grad()
     def decode_predictions(
