@@ -20,6 +20,8 @@
 <div align="center">
 <h1>🥧 PI3DETR: Parametric Instance Detection of 3D Point Cloud Edges with a Geometry-Aware 3DETR</h1>
 
+<h3>🎉 Accepted at International Conference on 3D Vision (3DV) 2026 🇨🇦</h3>
+
 [**Fabio F. Oberweger**](https://scholar.google.com/citations?user=njm6I3wAAAAJ&hl=de&oi=ao)<sup>&ast;</sup>,
 [**Michael Schwingshackl**](https://scholar.google.com/citations?user=fsvMYQYAAAAJ&hl=de&oi=ao)<sup>&ast;</sup> &
 [**Vanessa Staderini**](https://scholar.google.com/citations?user=mvTD6wIAAAAJ&hl=de&oi=ao)
