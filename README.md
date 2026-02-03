@@ -1,6 +1,6 @@
 [![Contributors][contributors-shield]][contributors-url]
 [![Contributor1](https://github.com/fafraob.png?size=28)](https://github.com/fafraob)
-[![Contributor2](https://github.com/MichaelSchwingshackl.png?size=28)](https://github.com/MichaelSchwingshackl)&nbsp;&nbsp;&nbsp;
+[![Contributor2](https://github.com/swingaxe.png?size=28)](https://github.com/swingaxe)&nbsp;&nbsp;&nbsp;
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
@@ -42,7 +42,7 @@ Extending [3DETR](https://github.com/facebookresearch/3detr.git), our model intr
 
 ![](assets/architecture.png)
 
-- We built **PIRATR**, a parametric object detector for robotic applications, upon PI3DETR. Check out the [repository](https://github.com/MichaelSchwingshackl/piratr).
+- We built **PIRATR**, a parametric object detector for robotic applications, upon PI3DETR. Check out the [repository](https://github.com/swingaxe/piratr).
 
 ## Installation
 Our code is tested with PyTorch 2.5.1, CUDA 12.1 and Python 3.11.10. It may and probably will work with other versions too.
