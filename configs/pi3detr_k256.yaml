@@ -15,6 +15,7 @@ val_interval: 1
 ### Model parameters
 model: "pi3detr"
 preencoder_type: "samodule"
+use_fpsample: true
 num_features: 0
 weights: ""
 preencoder_lr: 1.0e-4

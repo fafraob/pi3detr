@@ -44,6 +44,10 @@ Extending [3DETR](https://github.com/facebookresearch/3detr.git), our model intr
 
 - We built **PIRATR**, a parametric object detector for robotic applications, upon PI3DETR. Check out the [repository](https://github.com/swingaxe/piratr).
 
+## What's new in PI3DETR?
+
+- **[Feb 12, 2026]** Added a `use_fpsample` flag to the config, enabling the use of the `fpsample` package inside the `SAModule`. This reduces inference time by ~70 ms on an RTX 4090. The released checkpoint was trained with `use_fpsample=False`, but it can be used with `use_fpsample=True` too. The default is now set to `True` for faster inference. To exactly reproduce the results reported in the paper, set `use_fpsample=False`.
+
 ## Installation
 Our code is tested with PyTorch 2.5.1, CUDA 12.1 and Python 3.11.10. It may and probably will work with other versions too.
 

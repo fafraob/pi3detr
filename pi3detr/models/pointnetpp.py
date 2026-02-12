@@ -1,4 +1,5 @@
 import torch
+import fpsample
 from torch import nn, Tensor
 from typing import Optional, Tuple
 import numpy as np
@@ -184,25 +185,45 @@ class SAModule(torch.nn.Module):
         num_out_points: float = 2048,
         r: float = 0.2,
         max_num_neighbors: int = 64,
+        use_fpsample: bool = False,
     ):
         super().__init__()
         self.num_out_points = num_out_points
         self.r = r
         self.conv = PointNetConv(nn, add_self_loops=False)
         self.max_num_neighbors = max_num_neighbors
+        self.use_fpsample = use_fpsample
 
     def forward(self, data: BaseData) -> list[tuple[TensorTriple]]:
         x, pos, batch = data.x, data.pos, data.batch
-        num_points_per_batch = torch.bincount(batch)
-        max_ratio = self.num_out_points / num_points_per_batch.min().item()
-        fps_idx = fps(pos, batch, ratio=max_ratio)
-        fps_batch = batch[fps_idx]
-        idx = torch.cat(
-            [
-                fps_idx[fps_batch == i][: self.num_out_points]
-                for i in range(batch.max().item() + 1)
-            ]
-        )
+        if not self.use_fpsample:
+            num_points_per_batch = torch.bincount(batch)
+            max_ratio = self.num_out_points / num_points_per_batch.min().item()
+            fps_idx = fps(pos, batch, ratio=max_ratio)
+            fps_batch = batch[fps_idx]
+            idx = torch.cat(
+                [
+                    fps_idx[fps_batch == i][: self.num_out_points]
+                    for i in range(batch.max().item() + 1)
+                ]
+            )
+        else:
+            # Group indices by batch
+            num_batches = int(batch.max()) + 1
+            fps_indices = []
+            for b in range(num_batches):
+                mask = batch == b
+                idx_b = torch.where(mask)[0]
+                if idx_b.numel() == 0:
+                    continue
+                pos_b = pos[idx_b].detach().cpu().numpy()
+                fps_local = fpsample.bucket_fps_kdline_sampling(
+                    pos_b, self.num_out_points, h=6
+                )
+                fps_indices.append(
+                    idx_b[torch.from_numpy(fps_local).long().to(idx_b.device)]
+                )
+            idx = torch.cat(fps_indices)
         if pos.device == torch.device("cpu"):
             row, col = radius_cpu(
                 pos,
